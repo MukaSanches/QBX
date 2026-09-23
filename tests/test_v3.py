@@ -2,6 +2,7 @@ import hashlib
 import random
 from pathlib import Path
 
+from qbx import __version__
 from qbx.api import inspect, pack, repair, unpack, verify
 from qbx.core import pack as pack_v2
 from qbx.resilient_v3 import record_index_v3
@@ -47,7 +48,7 @@ def test_v3_roundtrip_manifest_and_ark(tmp_path):
     assert result["format_version"] == 3
     assert result["planner"] == "AGRP+ARK"
     assert manifest["version"] == 3
-    assert manifest["product_version"] == "3.2.0"
+    assert manifest["product_version"] == __version__
     assert manifest["planner"]["name"] == "AGRP+ARK"
     assert manifest["comment"] == "v3-test"
     assert manifest["statistics"]["repair_edges"] > 0

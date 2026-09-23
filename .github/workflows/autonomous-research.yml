@@ -2,6 +2,11 @@ name: Laboratório autônomo QBX
 
 on:
   workflow_dispatch:
+    inputs:
+      retry_attempt:
+        description: "Tentativa curta após indisponibilidade do Gemini"
+        required: false
+        default: "0"
   schedule:
     - cron: "17 9 * * *"
   push:
@@ -127,18 +132,47 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RETRY_ATTEMPT: ${{ inputs.retry_attempt || '0' }}
         run: |
           set -euo pipefail
-          echo "O Gemini não respondeu após as tentativas internas. A rodada será reagendada com segurança."
-          gh workflow run autonomous-research.yml --ref main
-          echo "scheduled=true" >> "$GITHUB_OUTPUT"
+          attempt="${RETRY_ATTEMPT:-0}"
 
-      - name: Encerrar rodada reagendada sem erro de produto
+          # Retentativas curtas, porém limitadas. Evita o antigo loop infinito
+          # de workflows a cada minuto quando o serviço cloud está congestionado.
+          case "$attempt" in
+            0) wait_seconds=45; next=1 ;;
+            1) wait_seconds=90; next=2 ;;
+            2) wait_seconds=180; next=3 ;;
+            *)
+              echo "O Gemini continuou indisponível após 3 retentativas curtas."
+              echo "A rodada termina sem alterar o produto; a agenda diária permanece ativa."
+              echo "scheduled=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          echo "Gemini indisponível. Tentativa $((attempt + 1))/3 em ${wait_seconds}s."
+          sleep "$wait_seconds"
+
+          # Não cria outra tentativa se uma execução mais nova já estiver
+          # aguardando ou rodando. Isso impede tempestade de workflows.
+          newer="$(gh run list --workflow autonomous-research.yml --limit 10 --json databaseId,status --jq "[.[] | select(.databaseId > $GITHUB_RUN_ID and (.status == \"queued\" or .status == \"in_progress\"))] | length")"
+          if [ "$newer" -gt 0 ]; then
+            echo "Já existe uma rodada mais nova ativa; não criarei outra."
+            echo "scheduled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh workflow run autonomous-research.yml --ref main -f retry_attempt="$next"
+          echo "scheduled=true" >> "$GITHUB_OUTPUT"
+          echo "Nova tentativa curta solicitada: $next/3."
+
+      - name: Encerrar rodada indisponível sem erro de produto
         if: steps.gemini.outcome == 'failure'
         shell: bash
         run: |
           echo "Nenhuma mudança experimental será avaliada nesta execução."
-          echo "Uma nova rodada foi solicitada automaticamente."
+          echo "O produto permanece intacto. Retentativas são curtas e limitadas."
           exit 0
 
       - name: Restaurar arquivos de controle que a IA não pode alterar

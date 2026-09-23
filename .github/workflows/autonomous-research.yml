@@ -1,0 +1,335 @@
+name: Laboratório autônomo QBX
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/autonomous-research.yml"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: laboratorio-autonomo-qbx
+  cancel-in-progress: false
+
+jobs:
+  pesquisa:
+    name: Pesquisar, provar e publicar somente se melhorar
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Baixar o QBX
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verificar se a IA cloud foi conectada
+        id: config
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GEMINI_API_KEY}" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            existing="$(gh issue list --state open --search '"Ativar agente cloud Gemini" in:title' --json number --jq '.[0].number // empty')"
+            if [ -z "$existing" ]; then
+              gh issue create \
+                --title "Ativar agente cloud Gemini — configuração única" \
+                --body "O laboratório autônomo já está instalado, mas falta uma configuração única: criar uma chave gratuita no Google AI Studio e salvá-la neste repositório em Settings > Secrets and variables > Actions > New repository secret, com o nome GEMINI_API_KEY. A chave nunca deve ser colocada em arquivo do projeto. Depois disso, execute novamente o workflow 'Laboratório autônomo QBX' ou aguarde a próxima rodada diária."
+            fi
+            echo "A chave GEMINI_API_KEY ainda não está configurada. Nenhum arquivo de produto será alterado."
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Preparar Python
+        if: steps.config.outputs.ready == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar linha de base
+        if: steps.config.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Medir a versão atual antes da IA
+        if: steps.config.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q
+          python benchmarks/v3_benchmark.py
+          cp benchmarks/results/v3_latest.json /tmp/qbx-baseline-v3.json
+          python benchmarks/v3_2_bridge_benchmark.py
+          cp benchmarks/results/v3_2_bridge.json /tmp/qbx-baseline-bridge.json
+          git restore benchmarks/results
+
+      - name: Criar branch da rodada
+        if: steps.config.outputs.ready == 'true'
+        id: branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "QBX Autonomous Lab"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="autonomous/rodada-${GITHUB_RUN_ID}"
+          git checkout -b "$branch"
+          echo "name=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Pesquisador Gemini cloud
+        if: steps.config.outputs.ready == 'true'
+        id: gemini
+        uses: google-github-actions/run-gemini-cli@v0.1.22
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          prompt: |
+            Você está executando uma nova rodada do laboratório autônomo do QBX.
+            Leia GEMINI.md e siga todas as regras sem exceção.
+
+            Missão desta rodada:
+            1. Estude a versão atual, o diário research/RESEARCH_LEDGER.md, os relatórios anteriores, os testes e benchmarks.
+            2. Escolha UMA hipótese técnica que possa reduzir de forma real e sem perda o tamanho produzido pelo QBX nos benchmarks determinísticos existentes.
+            3. Se for útil, consulte documentação pública e literatura técnica, mas não copie código incompatível com a licença do projeto.
+            4. Implemente a menor alteração experimental correta.
+            5. Nunca remova nem enfraqueça SHA-256, round-trip, ARK, testes ou benchmarks.
+            6. Não altere workflows, GEMINI.md, instruções dos agentes ou scripts em scripts/.
+            7. Não faça git push, merge, tag ou release. Trabalhe somente na árvore local.
+            8. Não aumente a versão. A esteira fará isso se a ideia for aprovada.
+            9. Atualize CHANGELOG.md usando o cabeçalho "## Próxima versão — Pesquisa autônoma".
+            10. Crie um relatório novo em research/rodadas/ e atualize research/RESEARCH_LEDGER.md. Explique em português do Brasil, para um leigo, hipótese, alteração, testes e resultado.
+            11. Se durante sua própria análise a ideia claramente não funcionar, reverta a alteração de produto, registre a hipótese como rejeitada e encerre sem inventar ganho.
+
+            Critério principal: perda zero de dados. Depois do seu trabalho, uma camada independente executará testes e comparará o tamanho com a versão anterior.
+
+      - name: Restaurar arquivos de controle que a IA não pode alterar
+        if: steps.config.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            .github/workflows/autonomous-research.yml \
+            .github/workflows/build-windows.yml \
+            .github/workflows/ci.yml \
+            .github/copilot-instructions.md \
+            GEMINI.md \
+            scripts/bump_patch_version.py \
+            scripts/compare_research_gate.py
+          do
+            git restore --source=HEAD -- "$file"
+          done
+
+          if git diff --numstat -- tests benchmarks | awk '$2 > 0 { exit 1 }'; then
+            echo "Testes e benchmarks não tiveram linhas removidas."
+          else
+            echo "A IA removeu linhas de testes/benchmarks. Rodada bloqueada."
+            exit 1
+          fi
+
+      - name: Verificar se houve alteração real de produto
+        if: steps.config.outputs.ready == 'true'
+        id: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only)"
+          echo "Arquivos alterados:"
+          printf '%s\n' "$changed"
+
+          if printf '%s\n' "$changed" | grep -Eq '^(qbx/|qbx_cli\.py$|qbx_gui\.py$|pyproject\.toml$|installer/)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Registrar rodada sem mudança de produto
+        if: steps.config.outputs.ready == 'true' && steps.product.outputs.changed != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GEMINI_SUMMARY: ${{ steps.gemini.outputs.summary }}
+        run: |
+          set -euo pipefail
+          body_file="$RUNNER_TEMP/rodada-sem-mudanca.md"
+          {
+            echo "# Rodada autônoma $GITHUB_RUN_ID"
+            echo
+            echo "A rodada terminou sem uma alteração de produto que justificasse nova versão."
+            echo
+            echo "## Resumo do pesquisador"
+            echo
+            printf '%s\n' "$GEMINI_SUMMARY"
+          } > "$body_file"
+          gh issue create --title "Pesquisa autônoma $GITHUB_RUN_ID — sem versão nova" --body-file "$body_file"
+
+      - name: Reinstalar versão experimental
+        if: steps.config.outputs.ready == 'true' && steps.product.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[dev]"
+
+      - name: Testar versão experimental
+        if: steps.config.outputs.ready == 'true' && steps.product.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q
+          python benchmarks/v3_benchmark.py
+          cp benchmarks/results/v3_latest.json /tmp/qbx-candidate-v3.json
+          python benchmarks/v3_2_bridge_benchmark.py
+          cp benchmarks/results/v3_2_bridge.json /tmp/qbx-candidate-bridge.json
+
+      - name: Comparar versão atual e experimento
+        if: steps.config.outputs.ready == 'true' && steps.product.outputs.changed == 'true'
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/compare_research_gate.py \
+            --baseline-v3 /tmp/qbx-baseline-v3.json \
+            --candidate-v3 /tmp/qbx-candidate-v3.json \
+            --baseline-bridge /tmp/qbx-baseline-bridge.json \
+            --candidate-bridge /tmp/qbx-candidate-bridge.json \
+            --report research/GATE_ATUAL.md
+          echo "accepted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Criar novo número de versão
+        if: steps.gate.outputs.accepted == 'true'
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          new_version="$(python scripts/bump_patch_version.py)"
+          echo "number=$new_version" >> "$GITHUB_OUTPUT"
+          echo "Nova versão candidata: $new_version"
+
+      - name: Commitar e enviar candidata
+        if: steps.gate.outputs.accepted == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git commit -m "QBX ${{ steps.version.outputs.number }} — pesquisa autônoma validada"
+          git push --set-upstream origin "${{ steps.branch.outputs.name }}"
+
+      - name: Abrir Pull Request
+        if: steps.gate.outputs.accepted == 'true'
+        id: pr
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr_url="$(gh pr create \
+            --base main \
+            --head "${{ steps.branch.outputs.name }}" \
+            --title "QBX ${{ steps.version.outputs.number }} — pesquisa autônoma validada" \
+            --body "Esta mudança foi criada pelo laboratório autônomo. A hipótese passou pelos testes locais, pelos benchmarks de integridade e pelo gate comparativo. Antes do merge, a própria esteira ainda executará a matriz completa de CI e uma build real do instalador Windows.")"
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "PR criado: $pr_url"
+
+      - name: Disparar CI completa na candidata
+        if: steps.gate.outputs.accepted == 'true'
+        id: ci_run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run ci.yml --ref "${{ steps.branch.outputs.name }}"
+          for attempt in {1..30}; do
+            run_id="$(gh run list --workflow ci.yml --branch "${{ steps.branch.outputs.name }}" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+            if [ -n "$run_id" ]; then
+              echo "id=$run_id" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Não encontrei a execução da CI."
+          exit 1
+
+      - name: Aguardar CI completa
+        if: steps.gate.outputs.accepted == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run watch "${{ steps.ci_run.outputs.id }}" --exit-status
+
+      - name: Disparar build real do Windows
+        if: steps.gate.outputs.accepted == 'true'
+        id: windows_run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run build-windows.yml --ref "${{ steps.branch.outputs.name }}"
+          for attempt in {1..30}; do
+            run_id="$(gh run list --workflow build-windows.yml --branch "${{ steps.branch.outputs.name }}" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+            if [ -n "$run_id" ]; then
+              echo "id=$run_id" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Não encontrei a execução da build do Windows."
+          exit 1
+
+      - name: Aguardar instalador da candidata
+        if: steps.gate.outputs.accepted == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run watch "${{ steps.windows_run.outputs.id }}" --exit-status
+
+      - name: Fazer merge automático
+        if: steps.gate.outputs.accepted == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr merge "${{ steps.pr.outputs.url }}" --squash --delete-branch
+          echo "Merge automático concluído porque todos os gates passaram."
+
+      - name: Gerar instalador e release da main
+        if: steps.gate.outputs.accepted == 'true'
+        id: release_run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run build-windows.yml --ref main
+          for attempt in {1..30}; do
+            run_id="$(gh run list --workflow build-windows.yml --branch main --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+            if [ -n "$run_id" ]; then
+              echo "id=$run_id" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Não encontrei a build final da main."
+          exit 1
+
+      - name: Confirmar publicação final
+        if: steps.gate.outputs.accepted == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run watch "${{ steps.release_run.outputs.id }}" --exit-status

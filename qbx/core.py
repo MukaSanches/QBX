@@ -197,19 +197,25 @@ class CodecEngine:
 
     @staticmethod
     def decode(codec: int, payload: bytes, expected_size: int) -> bytes:
-        if codec == CODEC_RAW:
-            raw = payload
-        elif codec == CODEC_ZSTD:
-            raw = zstd.ZstdDecompressor().decompress(
-                payload,
-                max_output_size=max(expected_size, 1),
-            )
-        elif codec == CODEC_ZLIB:
-            raw = zlib.decompress(payload)
-        elif codec == CODEC_LZMA:
-            raw = lzma.decompress(payload)
-        else:
-            raise QBXError(f"Unsupported QBX codec id: {codec}")
+        try:
+            if codec == CODEC_RAW:
+                raw = payload
+            elif codec == CODEC_ZSTD:
+                raw = zstd.ZstdDecompressor().decompress(
+                    payload,
+                    max_output_size=max(expected_size, 1),
+                )
+            elif codec == CODEC_ZLIB:
+                raw = zlib.decompress(payload)
+            elif codec == CODEC_LZMA:
+                raw = lzma.decompress(payload)
+            else:
+                raise QBXError(f"Unsupported QBX codec id: {codec}")
+        except QBXError:
+            raise
+        except Exception as exc:
+            name = CODEC_NAMES.get(codec, str(codec))
+            raise QBXError(f"Failed to decode {name} block") from exc
 
         if len(raw) != expected_size:
             raise QBXError(

@@ -246,8 +246,19 @@ def _build_repair_lattice(
     protected: set[str] = set()
     group_reports: list[dict] = []
 
-    for start in range(0, len(ordered_hashes), ARK_GROUP_SIZE):
-        group = tuple(ordered_hashes[start : start + ARK_GROUP_SIZE])
+    # Cluster by raw block size before forming ARK groups.  Content-defined
+    # chunks that differ radically in size are generally poor XOR repair
+    # partners and can make a cheap connected lattice infeasible under a
+    # strict repair-byte budget.  Size ordering is deterministic, scalable,
+    # and keeps same-sized version-like blocks together for the bounded exact
+    # search.
+    grouped_hashes = sorted(
+        ordered_hashes,
+        key=lambda h: (raw_paths[h].stat().st_size, h),
+    )
+
+    for start in range(0, len(grouped_hashes), ARK_GROUP_SIZE):
+        group = tuple(grouped_hashes[start : start + ARK_GROUP_SIZE])
         if len(group) < 2:
             continue
 

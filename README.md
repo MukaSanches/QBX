@@ -1,9 +1,9 @@
-# QBX 3.2.0
+# QBX 3.2.1
 
 [![CI](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml)
 [![Windows product](https://github.com/MukaSanches/QBX/actions/workflows/build-windows.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/build-windows.yml)
 
-QBX is an experimental adaptive archive format and Windows archive manager. **QBX 3.2.0** combines the existing AGRP global compression planner with **ARK — Adaptive Reconstruction Knowledge Lattice**, a bounded repair-topology planner designed to make some corrupted primary block representations reconstructable without requiring quantum hardware.
+QBX is an experimental adaptive archive format and Windows archive manager. **QBX 3.2.1** combines the existing AGRP global compression planner with **ARK — Adaptive Reconstruction Knowledge Lattice**, a bounded repair-topology planner designed to make some corrupted primary block representations reconstructable without requiring quantum hardware.
 
 ## V3 pipeline
 
@@ -37,8 +37,8 @@ The project does not copy WinRAR source code, proprietary icons or trademarked b
 
 Windows CI produces:
 
-- `QBX-Setup-3.2.0.exe`;
-- `QBX-Portable-3.2.0.zip`;
+- `QBX-Setup-3.2.1.exe`;
+- `QBX-Portable-3.2.1.zip`;
 - `SHA256SUMS.txt`;
 - `v3_latest.json` reproducible benchmark evidence.
 

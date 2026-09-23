@@ -27,3 +27,31 @@ Para ser aceita, a candidata precisa manter os dois resultados sem aumento e eco
 ## Estado
 
 **Em validação.**
+
+
+## Resultado final
+
+| Medição | Antes | QBX 3.2.1 candidata | Ganho |
+|---|---:|---:|---:|
+| QBX V3 resiliente | 1.246.219 bytes | 1.246.179 bytes | **40 bytes** |
+| Ponte universal → QBX | 792.694 bytes | 792.682 bytes | **12 bytes** |
+| QBX V2 adaptativo | 1.238.063 bytes | 1.238.017 bytes | **46 bytes** |
+
+## Validação
+
+- Linux + Python 3.10: passou;
+- Linux + Python 3.12: passou;
+- Windows + Python 3.10: passou;
+- Windows + Python 3.12: passou;
+- benchmark QBX V3 e recuperação ARK: passou;
+- benchmark da ponte universal: passou;
+- executável de linha de comando: passou;
+- aplicativo gráfico: passou;
+- abertura real da interface: passou;
+- instalador Windows: gerado com sucesso.
+
+## Decisão
+
+**APROVADA para QBX 3.2.1.**
+
+O ganho é pequeno em termos absolutos, mas é real, reproduzível e supera o mínimo científico de 32 bytes no benchmark V3. Nenhum byte do conteúdo original foi perdido, e os mecanismos de integridade do QBX continuam ativos.

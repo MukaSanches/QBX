@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qbx-archive"
-version = "3.2.0"
+version = "3.2.1"
 description = "QBX 3.2 universal archive bridge with QBX AGRP/ARK plus ZIP, 7z and RAR workflows"
 readme = "README.md"
 requires-python = ">=3.10"

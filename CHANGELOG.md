@@ -1,10 +1,10 @@
 # Changelog
 
-## Próxima versão — Pesquisa autônoma
+## 3.2.1 — Pesquisa autônoma validada
 
-- Rodada 0003: em validação a redução de metadados redundantes nos frames Zstandard do planejador adaptativo.
+- Rodada 0003 aprovada: reduzidos metadados redundantes nos frames Zstandard do planejador adaptativo.
 - O tamanho original continua armazenado pelo QBX e cada bloco/arquivo continua protegido por SHA-256.
-- A mudança só vira versão se os benchmarks superarem o mínimo científico e toda a build Windows passar.
+- Resultado medido: QBX V3 caiu de 1.246.219 para 1.246.179 bytes (40 bytes menores) e a ponte universal caiu de 792.694 para 792.682 bytes (12 bytes menores). Todos os testes, recuperação ARK, executáveis e instalador Windows passaram.
 
 ## Infraestrutura de pesquisa autônoma — sem mudança de versão
 

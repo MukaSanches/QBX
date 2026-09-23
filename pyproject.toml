@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qbx-archive"
-version = "3.1.0"
-description = "QBX 3.1 resilient archive manager with AGRP global planning and ARK recovery lattice"
+version = "3.2.0"
+description = "QBX 3.2 universal archive bridge with QBX AGRP/ARK plus ZIP, 7z and RAR workflows"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -13,6 +13,7 @@ authors = [{name = "QBX contributors"}]
 dependencies = [
   "zstandard>=0.23",
   "PySide6>=6.7",
+  "py7zr>=0.22",
 ]
 keywords = [
   "archive",

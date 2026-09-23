@@ -564,7 +564,7 @@ class QBXWindow(QMainWindow):
         return a
 
     def _build_actions(self) -> None:
-        self.act_new = self._action("Novo arquivo...", "new", self.create_new_archive, "Ctrl+N")
+        self.act_new = self._action("Criar QBX", "new", self.create_new_archive, "Ctrl+N")
         self.act_open = self._action("Abrir arquivo...", "open", self.choose_archive, "Ctrl+O")
         self.act_add = self._action("Adicionar", "add", self.add_clicked, "Alt+A")
         self.act_extract = self._action("Extrair Para", "extract", self.extract_clicked, "Alt+E")
@@ -595,6 +595,7 @@ class QBXWindow(QMainWindow):
 
         m_commands = bar.addMenu("Comandos")
         for action in (
+            self.act_new,
             self.act_add,
             self.act_extract,
             self.act_test,
@@ -609,6 +610,9 @@ class QBXWindow(QMainWindow):
         m_tools = bar.addMenu("Ferramentas")
         m_tools.addAction(self.act_wizard)
         m_tools.addAction(self.act_info)
+        tech_action = QAction("Tecnologia QBX: AGRP + ARK", self)
+        tech_action.triggered.connect(self.show_technology)
+        m_tools.addAction(tech_action)
         hash_action = QAction("Copiar SHA-256 do arquivo QBX", self)
         hash_action.triggered.connect(self.copy_archive_hash)
         m_tools.addAction(hash_action)
@@ -979,15 +983,20 @@ class QBXWindow(QMainWindow):
         self.mode = "filesystem"
         self.refresh_view()
 
-    def _stage_and_pack(self, sources: list[Path], output: Path, comment: str) -> dict:
+    def _stage_and_pack(self, options: dict) -> dict:
+        sources: list[Path] = options["sources"]
+        output: Path = options["output"]
+        kwargs = {
+            "profile": options["profile"],
+            "max_size_mb": options["max_size_mb"],
+            "max_decode_ms": options["max_decode_ms"],
+            "repair_budget_pct": options["repair_budget_pct"],
+            "comment": options["comment"],
+        }
+
         if len(sources) == 1:
-            return pack(
-                sources[0],
-                output,
-                profile="resilient",
-                repair_budget_pct=self.repair_budget_pct,
-                comment=comment,
-            )
+            return pack(sources[0], output, **kwargs)
+
         with tempfile.TemporaryDirectory(prefix="qbx-stage-") as td:
             stage = Path(td) / "content"
             stage.mkdir()
@@ -997,43 +1006,57 @@ class QBXWindow(QMainWindow):
                     shutil.copytree(src, target, dirs_exist_ok=True)
                 else:
                     shutil.copy2(src, target)
-            return pack(
-                stage,
-                output,
-                profile="resilient",
-                repair_budget_pct=self.repair_budget_pct,
-                comment=comment,
-            )
+            return pack(stage, output, **kwargs)
 
     def create_new_archive(self) -> None:
         selected = [
-            Path(p) for p, kind in self._selected()
-            if self.mode == "filesystem" and kind in {"fs-file", "fs-dir"} and Path(p).name != ".."
+            Path(p)
+            for p, kind in self._selected()
+            if self.mode == "filesystem"
+            and kind in {"fs-file", "fs-dir"}
+            and Path(p).name != ".."
         ]
-        if not selected:
-            files, _ = QFileDialog.getOpenFileNames(self, "Selecionar arquivos para adicionar", str(self.fs_dir), "Todos os arquivos (*)")
-            selected = [Path(p) for p in files]
-            if not selected:
-                folder = QFileDialog.getExistingDirectory(self, "Selecionar pasta", str(self.fs_dir))
-                if folder:
-                    selected = [Path(folder)]
-        if not selected:
-            return
 
-        default_name = (selected[0].name if len(selected) == 1 else "arquivo") + ".qbx"
-        output, _ = QFileDialog.getSaveFileName(self, "Criar arquivo QBX", str(self.fs_dir / default_name), "QBX (*.qbx)")
-        if not output:
-            return
-        comment, ok = QInputDialog.getMultiLineText(self, "Comentário do arquivo", "Comentário opcional:")
-        if not ok:
-            comment = ""
-
-        out = Path(output)
-        self._run(
-            "Compactando com AGRP + ARK...",
-            lambda: self._stage_and_pack(selected, out, comment),
-            lambda _result: self.open_archive(out),
+        dialog = CreateArchiveDialog(
+            self,
+            initial_sources=selected,
+            base_dir=self.fs_dir,
+            default_repair_budget=self.repair_budget_pct,
         )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        options = dialog.options()
+        self.repair_budget_pct = float(options["repair_budget_pct"])
+        self.config_data["repair_budget_pct"] = self.repair_budget_pct
+        self._save_config()
+        out: Path = options["output"]
+
+        profile_label = (
+            "AGRP + ARK"
+            if options["profile"] == "resilient"
+            else options["profile"].upper()
+        )
+        self._run(
+            f"Criando QBX com {profile_label}...",
+            lambda: self._stage_and_pack(options),
+            lambda result: self._archive_created(out, result),
+        )
+
+    def _archive_created(self, out: Path, result: dict) -> None:
+        QMessageBox.information(
+            self,
+            "Arquivo QBX criado",
+            f"Arquivo criado com sucesso.\n\n"
+            f"Saída: {out.name}\n"
+            f"Tamanho original: {human_bytes(result.get('original', 0))}\n"
+            f"Tamanho QBX: {human_bytes(result.get('archive', 0))}\n"
+            f"Perfil: {result.get('profile', '')}\n"
+            f"Planner: {result.get('planner', 'legacy')}\n"
+            f"Relações ARK: {result.get('repair_edges', 0)}\n"
+            f"SHA-256: {result.get('archive_sha256', '')[:24]}...",
+        )
+        self.open_archive(out)
 
     # ---------- toolbar commands ----------
 
@@ -1322,6 +1345,22 @@ class QBXWindow(QMainWindow):
             self.repair_budget_pct = float(value)
             self.config_data["repair_budget_pct"] = self.repair_budget_pct
             self._save_config()
+
+    def show_technology(self) -> None:
+        QMessageBox.information(
+            self,
+            "Tecnologia QBX 3.1",
+            "QBX 3.1 integra as camadas criadas no projeto:\n\n"
+            "• CDC — divide conteúdo em blocos por padrões dos próprios dados.\n"
+            "• SHA-256 — dá identidade verificável a cada bloco e arquivo.\n"
+            "• Deduplicação global — blocos repetidos são armazenados uma única vez.\n"
+            "• Multi-codec — RAW, Zstandard, Deflate e LZMA são medidos por bloco.\n"
+            "• Pareto — elimina representações claramente inferiores.\n"
+            "• AGRP — escolhe o plano global conforme tamanho e custo de leitura.\n"
+            "• ARK — seleciona relações reversíveis entre blocos sob orçamento real de bytes.\n"
+            "• Recuperação autenticada — um bloco reconstruído só é aceito se o SHA-256 conferir.\n\n"
+            "Na interface, use Criar QBX e escolha Resiliente V3 para ativar o caminho completo."
+        )
 
     def show_about(self) -> None:
         QMessageBox.information(

@@ -93,9 +93,12 @@ jobs:
           git checkout -b "$branch"
           echo "name=$branch" >> "$GITHUB_OUTPUT"
 
+      # O runner oficial já faz tentativas internas. Este timeout maior permite
+      # sobreviver a picos temporários de demanda (HTTP 503) sem publicar nada parcial.
       - name: Pesquisador Gemini cloud
         if: steps.config.outputs.ready == 'true'
         id: gemini
+        continue-on-error: true
         uses: google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489 # v0.1.22
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
@@ -118,8 +121,28 @@ jobs:
 
             Critério principal: perda zero de dados. Depois do seu trabalho, uma camada independente executará testes e comparará o tamanho com a versão anterior.
 
+      - name: Tratar indisponibilidade temporária do Gemini
+        if: steps.config.outputs.ready == 'true' && steps.gemini.outcome == 'failure'
+        id: gemini_retry
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "O Gemini não respondeu após as tentativas internas. A rodada será reagendada com segurança."
+          gh workflow run autonomous-research.yml --ref main
+          echo "scheduled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Encerrar rodada reagendada sem erro de produto
+        if: steps.gemini.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "Nenhuma mudança experimental será avaliada nesta execução."
+          echo "Uma nova rodada foi solicitada automaticamente."
+          exit 0
+
       - name: Restaurar arquivos de controle que a IA não pode alterar
-        if: steps.config.outputs.ready == 'true'
+        if: steps.config.outputs.ready == 'true' && steps.gemini.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -145,7 +168,7 @@ jobs:
           echo "Arquivos de controle, testes, benchmarks e VERSION foram restaurados da versão confiável."
 
       - name: Verificar se houve alteração real de produto
-        if: steps.config.outputs.ready == 'true'
+        if: steps.config.outputs.ready == 'true' && steps.gemini.outcome == 'success'
         id: product
         shell: bash
         run: |
@@ -161,7 +184,7 @@ jobs:
           fi
 
       - name: Registrar rodada sem mudança de produto
-        if: steps.config.outputs.ready == 'true' && steps.product.outputs.changed != 'true'
+        if: steps.config.outputs.ready == 'true' && steps.gemini.outcome == 'success' && steps.product.outputs.changed != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -181,14 +204,14 @@ jobs:
           gh issue create --title "Pesquisa autônoma $GITHUB_RUN_ID — sem versão nova" --body-file "$body_file"
 
       - name: Reinstalar versão experimental
-        if: steps.config.outputs.ready == 'true' && steps.product.outputs.changed == 'true'
+        if: steps.config.outputs.ready == 'true' && steps.gemini.outcome == 'success' && steps.product.outputs.changed == 'true'
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install -e ".[dev]"
 
       - name: Testar versão experimental
-        if: steps.config.outputs.ready == 'true' && steps.product.outputs.changed == 'true'
+        if: steps.config.outputs.ready == 'true' && steps.gemini.outcome == 'success' && steps.product.outputs.changed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -199,7 +222,7 @@ jobs:
           cp benchmarks/results/v3_2_bridge.json /tmp/qbx-candidate-bridge.json
 
       - name: Comparar versão atual e experimento
-        if: steps.config.outputs.ready == 'true' && steps.product.outputs.changed == 'true'
+        if: steps.config.outputs.ready == 'true' && steps.gemini.outcome == 'success' && steps.product.outputs.changed == 'true'
         id: gate
         shell: bash
         run: |

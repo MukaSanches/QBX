@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - product/v3
+      - hotfix/v3.0.1-ui
     tags:
       - "v*"
 
@@ -70,12 +71,12 @@ jobs:
           Copy-Item dist\qbx-cli.exe portable\
           Copy-Item README.md portable\
           Copy-Item LICENSE portable\
-          Compress-Archive -Path portable\* -DestinationPath artifacts\QBX-Portable-3.0.0.zip -Force
-          Copy-Item installer_output\QBX-Setup-3.0.0.exe artifacts\
+          Compress-Archive -Path portable\* -DestinationPath artifacts\QBX-Portable-3.0.1.zip -Force
+          Copy-Item installer_output\QBX-Setup-3.0.1.exe artifacts\
           Copy-Item benchmarks\results\v3_latest.json artifacts\
           $files = @(
-            "artifacts\QBX-Portable-3.0.0.zip",
-            "artifacts\QBX-Setup-3.0.0.exe",
+            "artifacts\QBX-Portable-3.0.1.zip",
+            "artifacts\QBX-Setup-3.0.1.exe",
             "dist\QBX.exe",
             "dist\qbx-cli.exe",
             "artifacts\v3_latest.json"
@@ -90,10 +91,10 @@ jobs:
       - name: Upload Windows product
         uses: actions/upload-artifact@v4
         with:
-          name: QBX-Windows-3.0.0
+          name: QBX-Windows-3.0.1
           path: |
-            artifacts/QBX-Portable-3.0.0.zip
-            artifacts/QBX-Setup-3.0.0.exe
+            artifacts/QBX-Portable-3.0.1.zip
+            artifacts/QBX-Setup-3.0.1.exe
             artifacts/SHA256SUMS.txt
             artifacts/v3_latest.json
           if-no-files-found: error
@@ -104,15 +105,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v3.0.0"
+          $tag = "v3.0.1"
           gh release view $tag 2>$null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag `
-              artifacts\QBX-Portable-3.0.0.zip `
-              artifacts\QBX-Setup-3.0.0.exe `
+              artifacts\QBX-Portable-3.0.1.zip `
+              artifacts\QBX-Setup-3.0.1.exe `
               artifacts\SHA256SUMS.txt `
               artifacts\v3_latest.json `
               --target $env:GITHUB_SHA `
-              --title "QBX 3.0.0 — AGRP + ARK" `
-              --notes "QBX 3.0 integrates the experimentally validated ARK repair-lattice concept with the existing AGRP planner, a classic Windows archive-manager interface, automatic recoverable-block reconstruction, installer/portable builds, tests, and reproducible benchmark evidence. Patentability is not asserted by this release."
+              --title "QBX 3.0.1 — Windows GUI hotfix" `
+              --notes "QBX 3.0.1 fixes the Windows GUI startup crash caused by an ambiguous Tcl/Tk font descriptor, adds an actual packaged-GUI startup smoke test, refines the classic toolbar UI, and preserves the AGRP + ARK V3 engine and recovery behavior."
           }

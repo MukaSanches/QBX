@@ -15,10 +15,16 @@ from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -26,6 +32,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStatusBar,
     QStyle,
+    QTextEdit,
     QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
@@ -268,6 +275,233 @@ QProgressBar::chunk {
     background: #0878d1;
 }
 """
+
+
+
+class CreateArchiveDialog(QDialog):
+    """Single, visual place to create a QBX archive and expose the V3 theory."""
+
+    def __init__(
+        self,
+        parent: QWidget,
+        initial_sources: list[Path],
+        base_dir: Path,
+        default_repair_budget: float,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("Criar arquivo QBX")
+        self.setWindowIcon(app_icon())
+        self.resize(720, 620)
+        self.base_dir = base_dir
+        self.sources: list[Path] = []
+        self._build_ui(default_repair_budget)
+        for path in initial_sources:
+            self.add_source(path)
+        self._refresh_default_output()
+
+    def _build_ui(self, default_repair_budget: float) -> None:
+        layout = QVBoxLayout(self)
+
+        title = QLabel(
+            "<h2>Criar novo arquivo QBX</h2>"
+            "<p>Escolha os dados e o objetivo. O modo <b>Resiliente V3</b> ativa "
+            "<b>CDC + deduplicação global + seleção adaptativa de codecs + AGRP + ARK + SHA-256</b>.</p>"
+        )
+        title.setWordWrap(True)
+        layout.addWidget(title)
+
+        source_label = QLabel("<b>1. Arquivos e pastas</b>")
+        layout.addWidget(source_label)
+
+        self.source_list = QListWidget()
+        self.source_list.setMinimumHeight(120)
+        layout.addWidget(self.source_list)
+
+        source_buttons = QHBoxLayout()
+        add_files = QPushButton("Adicionar arquivos")
+        add_folder = QPushButton("Adicionar pasta")
+        remove = QPushButton("Remover selecionado")
+        add_files.clicked.connect(self._choose_files)
+        add_folder.clicked.connect(self._choose_folder)
+        remove.clicked.connect(self._remove_selected)
+        source_buttons.addWidget(add_files)
+        source_buttons.addWidget(add_folder)
+        source_buttons.addWidget(remove)
+        source_buttons.addStretch(1)
+        layout.addLayout(source_buttons)
+
+        form = QFormLayout()
+
+        output_row = QWidget()
+        output_layout = QHBoxLayout(output_row)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        self.output_edit = QLineEdit()
+        browse_output = QPushButton("...")
+        browse_output.setFixedWidth(42)
+        browse_output.clicked.connect(self._choose_output)
+        output_layout.addWidget(self.output_edit, 1)
+        output_layout.addWidget(browse_output)
+        form.addRow("2. Arquivo de saída:", output_row)
+
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItem("Resiliente V3 — AGRP + ARK (recomendado)", "resilient")
+        self.profile_combo.addItem("Adaptativo V2 — AGRP", "adaptive")
+        self.profile_combo.addItem("Menor tamanho", "smallest")
+        self.profile_combo.addItem("Equilibrado", "balanced")
+        self.profile_combo.addItem("Rápido", "fast")
+        self.profile_combo.currentIndexChanged.connect(self._profile_changed)
+        form.addRow("3. Estratégia:", self.profile_combo)
+
+        self.size_goal = QDoubleSpinBox()
+        self.size_goal.setRange(0.0, 1024 * 1024.0)
+        self.size_goal.setDecimals(2)
+        self.size_goal.setSuffix(" MB")
+        self.size_goal.setSpecialValueText("Sem limite")
+        self.size_goal.setToolTip("Objetivo opcional de tamanho máximo para o planejador global AGRP.")
+        form.addRow("Meta de tamanho:", self.size_goal)
+
+        self.decode_goal = QDoubleSpinBox()
+        self.decode_goal.setRange(0.0, 60_000.0)
+        self.decode_goal.setDecimals(1)
+        self.decode_goal.setSuffix(" ms")
+        self.decode_goal.setSpecialValueText("Sem limite")
+        self.decode_goal.setToolTip("Objetivo opcional de custo estimado de decodificação para o AGRP.")
+        form.addRow("Meta de decodificação:", self.decode_goal)
+
+        self.repair_budget = QDoubleSpinBox()
+        self.repair_budget.setRange(0.0, 100.0)
+        self.repair_budget.setDecimals(2)
+        self.repair_budget.setSuffix(" %")
+        self.repair_budget.setValue(default_repair_budget)
+        self.repair_budget.setToolTip(
+            "Percentual máximo do payload primário reservado para relações reversíveis ARK."
+        )
+        form.addRow("Orçamento ARK:", self.repair_budget)
+
+        self.comment_edit = QTextEdit()
+        self.comment_edit.setMaximumHeight(80)
+        self.comment_edit.setPlaceholderText("Comentário opcional armazenado no manifesto QBX...")
+        form.addRow("Comentário:", self.comment_edit)
+
+        layout.addLayout(form)
+
+        self.theory = QLabel()
+        self.theory.setWordWrap(True)
+        self.theory.setTextFormat(Qt.TextFormat.RichText)
+        self.theory.setStyleSheet(
+            "QLabel { background:#182635; border:1px solid #31546f; "
+            "border-radius:6px; padding:10px; color:#dfefff; }"
+        )
+        layout.addWidget(self.theory)
+        self._profile_changed()
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Criar QBX")
+        buttons.accepted.connect(self._accept_checked)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def add_source(self, path: Path) -> None:
+        path = path.resolve()
+        if not path.exists() or path in self.sources:
+            return
+        self.sources.append(path)
+        self.source_list.addItem(str(path))
+        self._refresh_default_output()
+
+    def _choose_files(self) -> None:
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Selecionar arquivos", str(self.base_dir), "Todos os arquivos (*)"
+        )
+        for value in files:
+            self.add_source(Path(value))
+
+    def _choose_folder(self) -> None:
+        value = QFileDialog.getExistingDirectory(self, "Selecionar pasta", str(self.base_dir))
+        if value:
+            self.add_source(Path(value))
+
+    def _remove_selected(self) -> None:
+        rows = sorted({self.source_list.row(item) for item in self.source_list.selectedItems()}, reverse=True)
+        for row in rows:
+            self.source_list.takeItem(row)
+            del self.sources[row]
+        self._refresh_default_output()
+
+    def _refresh_default_output(self) -> None:
+        if self.output_edit.text().strip():
+            return
+        if len(self.sources) == 1:
+            stem = self.sources[0].name
+        elif len(self.sources) > 1:
+            stem = "arquivo"
+        else:
+            stem = "novo-arquivo"
+        self.output_edit.setText(str(self.base_dir / f"{stem}.qbx"))
+
+    def _choose_output(self) -> None:
+        value, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar arquivo QBX",
+            self.output_edit.text() or str(self.base_dir / "arquivo.qbx"),
+            "QBX (*.qbx)",
+        )
+        if value:
+            if not value.lower().endswith(".qbx"):
+                value += ".qbx"
+            self.output_edit.setText(value)
+
+    def _profile_changed(self, *_args) -> None:
+        resilient = self.profile_combo.currentData() == "resilient"
+        self.repair_budget.setEnabled(resilient)
+        if resilient:
+            self.theory.setText(
+                "<b>QBX V3 — caminho completo:</b><br>"
+                "1) Content-Defined Chunking divide o conteúdo em blocos reutilizáveis.<br>"
+                "2) SHA-256 identifica blocos e a deduplicação global evita armazenar repetições.<br>"
+                "3) RAW, Zstandard, Deflate e LZMA competem como representações candidatas.<br>"
+                "4) AGRP faz planejamento global sob metas de tamanho/decodificação.<br>"
+                "5) ARK cria relações reversíveis selecionadas sob orçamento real de bytes.<br>"
+                "6) Na leitura, uma reconstrução só é aceita se o SHA-256 original conferir."
+            )
+        else:
+            self.theory.setText(
+                "<b>Modo compatível V2:</b> mantém CDC, SHA-256, deduplicação e os perfis "
+                "de compressão existentes. Se quiser a tecnologia completa AGRP + ARK, "
+                "use <b>Resiliente V3</b>."
+            )
+
+    def _accept_checked(self) -> None:
+        if not self.sources:
+            QMessageBox.warning(self, APP_NAME, "Adicione pelo menos um arquivo ou pasta.")
+            return
+        output = self.output_edit.text().strip()
+        if not output:
+            QMessageBox.warning(self, APP_NAME, "Escolha o arquivo QBX de saída.")
+            return
+        out = Path(output)
+        if out.suffix.lower() != ".qbx":
+            out = out.with_suffix(out.suffix + ".qbx" if out.suffix else ".qbx")
+            self.output_edit.setText(str(out))
+        if any(src.resolve() == out.resolve() for src in self.sources):
+            QMessageBox.warning(self, APP_NAME, "O arquivo de saída não pode ser uma das fontes.")
+            return
+        self.accept()
+
+    def options(self) -> dict:
+        max_size = float(self.size_goal.value())
+        max_decode = float(self.decode_goal.value())
+        return {
+            "sources": list(self.sources),
+            "output": Path(self.output_edit.text()),
+            "profile": str(self.profile_combo.currentData()),
+            "max_size_mb": max_size if max_size > 0 else None,
+            "max_decode_ms": max_decode if max_decode > 0 else None,
+            "repair_budget_pct": float(self.repair_budget.value()),
+            "comment": self.comment_edit.toPlainText(),
+        }
 
 
 class QBXWindow(QMainWindow):

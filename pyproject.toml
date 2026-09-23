@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qbx-archive"
-version = "3.0.0"
+version = "3.0.1"
 description = "QBX 3.0 resilient archive engine with AGRP global planning and ARK repair lattice"
 readme = "README.md"
 requires-python = ">=3.10"

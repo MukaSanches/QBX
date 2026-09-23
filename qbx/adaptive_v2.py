@@ -91,11 +91,13 @@ def _candidate_specs(raw: bytes):
     yield CODEC_RAW, "raw", None, (lambda value: value), (lambda value: value)
 
     for level in (1, 3, 9, 19):
+        # O contêiner QBX já guarda o tamanho original e valida cada bloco
+        # com SHA-256. Evitamos duplicar esses metadados dentro de cada frame.
         compressor = zstd.ZstdCompressor(
             level=level,
             threads=0,
-            write_checksum=True,
-            write_content_size=True,
+            write_checksum=False,
+            write_content_size=False,
             write_dict_id=False,
         )
         decompressor = zstd.ZstdDecompressor()

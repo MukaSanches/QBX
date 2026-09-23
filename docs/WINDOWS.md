@@ -1,39 +1,39 @@
-# QBX for Windows
+# QBX 2.0 for Windows
 
-QBX 1.0.0-rc1 is distributed in two Windows forms.
+QBX 2.0 is distributed in two Windows forms.
 
 ## Installer
 
-`QBX-Setup-1.0.0-rc1.exe`
+`QBX-Setup-2.0.0.exe`
 
-The installer places the application under Program Files, creates a Start Menu shortcut, installs the command-line executable, and associates the `.qbx` extension with the graphical QBX application.
+The installer places QBX under Program Files, creates a Start Menu shortcut, installs the command-line executable, and associates the `.qbx` extension with the graphical application.
 
 The installer is currently **not code-signed**. Windows SmartScreen may therefore display an unknown-publisher warning.
 
 ## Portable
 
-`QBX-Portable-1.0.0-rc1.zip`
+`QBX-Portable-2.0.0.zip`
 
 Contains:
 
 - `QBX.exe` — graphical application;
 - `qbx-cli.exe` — command-line application.
 
-No Python installation is required for either executable.
+No Python installation is required.
 
-## Graphical application
+## QBX 2.0 adaptive mode
 
-The GUI can:
+The default GUI profile is now `adaptive`, which runs AGRP:
 
-- select a file or folder;
-- create a QBX archive;
-- choose fast, balanced, or smallest profile;
-- inspect an archive;
-- verify every stored block and reconstructed file hash;
-- extract an archive safely.
+1. content-defined chunking;
+2. SHA-256 global deduplication;
+3. multiple measured codec representations;
+4. Pareto pruning;
+5. bounded global goal-constrained planning;
+6. verified QBX container creation.
 
-Double-clicking an associated `.qbx` file opens it in the GUI.
+The older `fast`, `balanced`, and `smallest` profiles remain available.
 
 ## Verification
 
-The Windows build workflow produces `SHA256SUMS.txt` containing SHA-256 hashes of the installer, portable ZIP, and raw executables used during packaging.
+The Windows build runs the Python tests, the QBX 2.0 reproducible benchmark, CLI smoke tests and a GUI self-test. It then produces `SHA256SUMS.txt` for the installer, portable archive and executables.

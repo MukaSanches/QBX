@@ -177,3 +177,16 @@ python benchmarks/v3_benchmark.py
 ## License
 
 MIT.
+
+
+## Laboratório autônomo
+
+O repositório inclui uma esteira experimental de pesquisa contínua na nuvem.
+
+Em linguagem simples: uma IA cloud pode testar uma hipótese de melhoria; depois disso, scripts independentes comparam a versão experimental com a versão atual. Uma nova versão só pode seguir para merge automático quando passa por integridade, benchmarks, CI em Linux/Windows e uma build real do instalador.
+
+O número da versão e o nome do instalador são gerados automaticamente. Uma rodada que não comprovar ganho não cria uma versão artificial.
+
+A explicação completa em português está em [docs/LABORATORIO_AUTONOMO.md](docs/LABORATORIO_AUTONOMO.md), e a memória das rodadas fica em [research/RESEARCH_LEDGER.md](research/RESEARCH_LEDGER.md).
+
+A IA cloud usa Gemini CLI pelo GitHub Actions. É necessário cadastrar `GEMINI_API_KEY` como Secret do repositório; a chave nunca deve ser gravada no código.

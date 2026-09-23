@@ -575,7 +575,8 @@ class QBXWindow(QMainWindow):
         assert self.manifest is not None and self.archive_path is not None
         self.tree.clear()
         prefix = "" if str(self.archive_dir) == "." else self.archive_dir.as_posix().rstrip("/") + "/"
-        self.address.setText(f"{self.archive_path}  \\  {prefix.replace('/', '\\')}")
+        display_prefix = prefix.replace("/", "\\")
+        self.address.setText(f"{self.archive_path}  \\  {display_prefix}")
         stats = self.manifest.get("statistics", {})
         original = stats.get("input_bytes", 0)
         self.info_line.setText(

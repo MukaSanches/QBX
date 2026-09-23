@@ -1,9 +1,9 @@
-# QBX 3.1.0
+# QBX 3.2.0
 
 [![CI](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml)
 [![Windows product](https://github.com/MukaSanches/QBX/actions/workflows/build-windows.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/build-windows.yml)
 
-QBX is an experimental adaptive archive format and Windows archive manager. **QBX 3.1.0** combines the existing AGRP global compression planner with **ARK — Adaptive Reconstruction Knowledge Lattice**, a bounded repair-topology planner designed to make some corrupted primary block representations reconstructable without requiring quantum hardware.
+QBX is an experimental adaptive archive format and Windows archive manager. **QBX 3.2.0** combines the existing AGRP global compression planner with **ARK — Adaptive Reconstruction Knowledge Lattice**, a bounded repair-topology planner designed to make some corrupted primary block representations reconstructable without requiring quantum hardware.
 
 ## V3 pipeline
 
@@ -37,19 +37,36 @@ The project does not copy WinRAR source code, proprietary icons or trademarked b
 
 Windows CI produces:
 
-- `QBX-Setup-3.1.0.exe`;
-- `QBX-Portable-3.1.0.zip`;
+- `QBX-Setup-3.2.0.exe`;
+- `QBX-Portable-3.2.0.zip`;
 - `SHA256SUMS.txt`;
 - `v3_latest.json` reproducible benchmark evidence.
 
 The installer is not Authenticode-signed, so Windows SmartScreen may show an unknown-publisher warning.
 
 
-## QBX 3.1 desktop experience
+## QBX 3.2 desktop experience
 
 The Windows application now uses a Qt/PySide6 desktop shell designed around the familiar workflow of classic archive managers while keeping QBX branding and original runtime-drawn icons. When no archive is open, the main window browses the filesystem directly; selecting files or folders and pressing **Criar QBX** opens one visual creation dialog.
 
 That dialog exposes the actual QBX technology instead of hiding it behind a generic compression slider: **Resilient V3** activates content-defined chunking, SHA-256 content identity, global deduplication, measured multi-codec candidates, Pareto pruning, AGRP global planning and the ARK repair lattice. Advanced users can set a target archive size, target decode cost and ARK repair-byte budget before creating the archive.
+
+## Universal Archive Bridge
+
+QBX 3.2 can recognize a selected `.qbx`, `.zip`, `.7z` or `.rar` input and, when **Optimize compressed input** is enabled, open that container first so the next compressor sees the logical files rather than an already-compressed byte stream.
+
+This directly addresses the common case where a ZIP becomes a slightly larger QBX when packed as an opaque file. If the ZIP contains duplicate or related files, decontainerization lets QBX CDC and global deduplication see those relationships again.
+
+The creation dialog now lets the user choose:
+
+- **QBX** — full CDC + SHA-256 + deduplication + multi-codec + Pareto + AGRP + ARK stack;
+- **7z** — standard 7z output;
+- **ZIP** — standard ZIP/Deflate output;
+- **RAR5** — standard RAR output when an installed RAR/WinRAR encoder is detected.
+
+A standard RAR/ZIP/7z file does **not** contain the QBX ARK lattice. Keeping those outputs standard is what preserves compatibility with other archivers. RAR creation depends on the separately installed RAR/WinRAR encoder; QBX does not bundle it.
+
+See [docs/UNIVERSAL_BRIDGE_V3.2.md](docs/UNIVERSAL_BRIDGE_V3.2.md).
 
 ## CLI
 
@@ -63,6 +80,16 @@ Create a resilient V3 archive:
 
 ```bash
 qbx pack MyFolder MyArchive.qbx
+```
+
+Create/convert through the Universal Archive Bridge:
+
+```bash
+qbx create optimized.qbx existing.zip --format qbx
+qbx create optimized.7z existing.zip --format 7z
+qbx create optimized.zip existing.7z --format zip
+qbx create optimized.rar existing.zip --format rar
+qbx formats
 ```
 
 Explicit V3 options:

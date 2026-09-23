@@ -1,26 +1,27 @@
-# QBX 1.0 Technology Preview
+# Changelog
 
-First public research release.
+## 1.0.0-rc1 — Product candidate
 
-## Implemented
+- Added bounded-memory content-defined file chunking.
+- Added global SHA-256 block deduplication.
+- Added adaptive RAW, Zstandard, Deflate, and LZMA representations.
+- Added fast, balanced, and smallest profiles.
+- Added deterministic QBX v2 container layout.
+- Added atomic archive creation and atomic extracted-file replacement.
+- Added safe path validation and overwrite protection.
+- Added complete block and reconstructed-file verification.
+- Added empty-directory preservation.
+- Added qbx verify and qbx list commands.
+- Expanded corruption, determinism, profile, and security tests.
+- Added Linux/Windows CI.
+- Added automated standalone Windows executable build.
+- Added reproducible product benchmark against ZIP/Deflate.
 
-- Native experimental `.qbx` container
-- Content-defined chunking
-- Global block deduplication
-- Adaptive RAW/ZLIB/LZMA representation
-- SHA-256 block integrity
-- SHA-256 reconstructed-file verification
-- Lossless pack/unpack
-- Classical archive-planning baseline
-- QUBO compiler
-- Quantum circuit planning experiment
-- Qiskit Aer execution
-- Public QBX format specification
-- Path-traversal protection during extraction
-- GitHub Actions test workflow
+## 1.0 Technology Preview
 
-## Research result
-
-The initial 9-qubit / 4096-shot qBraid/Aer experiment recovered the known optimum (cost 155).
-
-This demonstrates the QBX → QUBO → quantum-circuit → measurement pipeline. It is not a claim of quantum advantage.
+- Initial experimental QBX container.
+- Content-defined chunking.
+- Global block deduplication.
+- Adaptive RAW/ZLIB/LZMA selection.
+- SHA-256 integrity.
+- Classical planning baseline and QUBO research pipeline.

@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -43,6 +44,7 @@ from PySide6.QtWidgets import (
 from qbx import __version__
 from qbx.api import inspect, pack, repair, unpack, verify
 from qbx.archive_ops import add_sources, delete_entries, set_comment
+from qbx.bridge import create_archive as bridge_create_archive, output_capabilities
 
 APP_NAME = "QBX"
 CONFIG_PATH = Path.home() / ".qbx_gui.json"
@@ -279,7 +281,7 @@ QProgressBar::chunk {
 
 
 class CreateArchiveDialog(QDialog):
-    """Single, visual place to create a QBX archive and expose the V3 theory."""
+    """Visual creator for QBX and standard archive formats."""
 
     def __init__(
         self,
@@ -289,29 +291,29 @@ class CreateArchiveDialog(QDialog):
         default_repair_budget: float,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Criar arquivo QBX")
+        self.setWindowTitle("Criar arquivo")
         self.setWindowIcon(app_icon())
-        self.resize(720, 620)
+        self.resize(760, 700)
         self.base_dir = base_dir
         self.sources: list[Path] = []
+        self.capabilities = output_capabilities()
         self._build_ui(default_repair_budget)
         for path in initial_sources:
             self.add_source(path)
-        self._refresh_default_output()
+        self._refresh_default_output(force=True)
 
     def _build_ui(self, default_repair_budget: float) -> None:
         layout = QVBoxLayout(self)
 
         title = QLabel(
-            "<h2>Criar novo arquivo QBX</h2>"
-            "<p>Escolha os dados e o objetivo. O modo <b>Resiliente V3</b> ativa "
-            "<b>CDC + deduplicação global + seleção adaptativa de codecs + AGRP + ARK + SHA-256</b>.</p>"
+            "<h2>Criar / otimizar arquivo</h2>"
+            "<p>Escolha o formato final. <b>QBX</b> usa toda a tecnologia do projeto. "
+            "ZIP, 7z e RAR permanecem formatos padrão para continuarem compatíveis com outros programas.</p>"
         )
         title.setWordWrap(True)
         layout.addWidget(title)
 
-        source_label = QLabel("<b>1. Arquivos e pastas</b>")
-        layout.addWidget(source_label)
+        layout.addWidget(QLabel("<b>1. Arquivos, pastas ou arquivos compactados de entrada</b>"))
 
         self.source_list = QListWidget()
         self.source_list.setMinimumHeight(120)
@@ -332,6 +334,17 @@ class CreateArchiveDialog(QDialog):
 
         form = QFormLayout()
 
+        self.format_combo = QComboBox()
+        for fmt in ("qbx", "7z", "zip", "rar"):
+            cap = self.capabilities[fmt]
+            self.format_combo.addItem(cap["label"], fmt)
+            if not cap["available"]:
+                model_item = self.format_combo.model().item(self.format_combo.count() - 1)
+                if model_item is not None:
+                    model_item.setEnabled(False)
+        self.format_combo.currentIndexChanged.connect(self._format_changed)
+        form.addRow("2. Formato de saída:", self.format_combo)
+
         output_row = QWidget()
         output_layout = QHBoxLayout(output_row)
         output_layout.setContentsMargins(0, 0, 0, 0)
@@ -341,7 +354,17 @@ class CreateArchiveDialog(QDialog):
         browse_output.clicked.connect(self._choose_output)
         output_layout.addWidget(self.output_edit, 1)
         output_layout.addWidget(browse_output)
-        form.addRow("2. Arquivo de saída:", output_row)
+        form.addRow("3. Arquivo de saída:", output_row)
+
+        self.optimize_checkbox = QCheckBox(
+            "Otimizar arquivos compactados de entrada (QBX/ZIP/7z/RAR)"
+        )
+        self.optimize_checkbox.setChecked(True)
+        self.optimize_checkbox.setToolTip(
+            "Em vez de recomprimir o arquivo .zip/.7z/.rar pronto, o QBX abre o contêiner "
+            "temporariamente e trabalha sobre os arquivos lógicos internos."
+        )
+        form.addRow("Pré-processamento:", self.optimize_checkbox)
 
         self.profile_combo = QComboBox()
         self.profile_combo.addItem("Resiliente V3 — AGRP + ARK (recomendado)", "resilient")
@@ -350,14 +373,14 @@ class CreateArchiveDialog(QDialog):
         self.profile_combo.addItem("Equilibrado", "balanced")
         self.profile_combo.addItem("Rápido", "fast")
         self.profile_combo.currentIndexChanged.connect(self._profile_changed)
-        form.addRow("3. Estratégia:", self.profile_combo)
+        form.addRow("Estratégia QBX:", self.profile_combo)
 
         self.size_goal = QDoubleSpinBox()
         self.size_goal.setRange(0.0, 1024 * 1024.0)
         self.size_goal.setDecimals(2)
         self.size_goal.setSuffix(" MB")
         self.size_goal.setSpecialValueText("Sem limite")
-        self.size_goal.setToolTip("Objetivo opcional de tamanho máximo para o planejador global AGRP.")
+        self.size_goal.setToolTip("Meta opcional de tamanho para o planejador global AGRP.")
         form.addRow("Meta de tamanho:", self.size_goal)
 
         self.decode_goal = QDoubleSpinBox()
@@ -365,7 +388,7 @@ class CreateArchiveDialog(QDialog):
         self.decode_goal.setDecimals(1)
         self.decode_goal.setSuffix(" ms")
         self.decode_goal.setSpecialValueText("Sem limite")
-        self.decode_goal.setToolTip("Objetivo opcional de custo estimado de decodificação para o AGRP.")
+        self.decode_goal.setToolTip("Meta opcional de custo estimado de decodificação para o AGRP.")
         form.addRow("Meta de decodificação:", self.decode_goal)
 
         self.repair_budget = QDoubleSpinBox()
@@ -379,9 +402,9 @@ class CreateArchiveDialog(QDialog):
         form.addRow("Orçamento ARK:", self.repair_budget)
 
         self.comment_edit = QTextEdit()
-        self.comment_edit.setMaximumHeight(80)
-        self.comment_edit.setPlaceholderText("Comentário opcional armazenado no manifesto QBX...")
-        form.addRow("Comentário:", self.comment_edit)
+        self.comment_edit.setMaximumHeight(70)
+        self.comment_edit.setPlaceholderText("Comentário opcional do manifesto QBX...")
+        form.addRow("Comentário QBX:", self.comment_edit)
 
         layout.addLayout(form)
 
@@ -393,15 +416,17 @@ class CreateArchiveDialog(QDialog):
             "border-radius:6px; padding:10px; color:#dfefff; }"
         )
         layout.addWidget(self.theory)
-        self._profile_changed()
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save
         )
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Criar QBX")
+        self.create_button = buttons.button(QDialogButtonBox.StandardButton.Save)
+        self.create_button.setText("Criar arquivo")
         buttons.accepted.connect(self._accept_checked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+        self._format_changed()
 
     def add_source(self, path: Path) -> None:
         path = path.resolve()
@@ -409,11 +434,14 @@ class CreateArchiveDialog(QDialog):
             return
         self.sources.append(path)
         self.source_list.addItem(str(path))
-        self._refresh_default_output()
+        self._refresh_default_output(force=not bool(self.output_edit.text().strip()))
 
     def _choose_files(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Selecionar arquivos", str(self.base_dir), "Todos os arquivos (*)"
+            self,
+            "Selecionar arquivos",
+            str(self.base_dir),
+            "Arquivos suportados (*.qbx *.zip *.7z *.rar);;Todos os arquivos (*)",
         )
         for value in files:
             self.add_source(Path(value))
@@ -424,67 +452,135 @@ class CreateArchiveDialog(QDialog):
             self.add_source(Path(value))
 
     def _remove_selected(self) -> None:
-        rows = sorted({self.source_list.row(item) for item in self.source_list.selectedItems()}, reverse=True)
+        rows = sorted(
+            {self.source_list.row(item) for item in self.source_list.selectedItems()},
+            reverse=True,
+        )
         for row in rows:
             self.source_list.takeItem(row)
             del self.sources[row]
-        self._refresh_default_output()
+        self._refresh_default_output(force=True)
 
-    def _refresh_default_output(self) -> None:
-        if self.output_edit.text().strip():
-            return
+    def _current_format(self) -> str:
+        return str(self.format_combo.currentData() or "qbx")
+
+    def _base_output_stem(self) -> str:
         if len(self.sources) == 1:
-            stem = self.sources[0].name
-        elif len(self.sources) > 1:
-            stem = "arquivo"
-        else:
-            stem = "novo-arquivo"
-        self.output_edit.setText(str(self.base_dir / f"{stem}.qbx"))
+            name = self.sources[0].name
+            lower = name.lower()
+            for suffix in (".qbx", ".zip", ".7z", ".rar"):
+                if lower.endswith(suffix):
+                    return name[: -len(suffix)] or "arquivo"
+            return name
+        if len(self.sources) > 1:
+            return "arquivo"
+        return "novo-arquivo"
+
+    def _refresh_default_output(self, *, force: bool = False) -> None:
+        if self.output_edit.text().strip() and not force:
+            return
+        fmt = self._current_format()
+        self.output_edit.setText(str(self.base_dir / f"{self._base_output_stem()}.{fmt}"))
 
     def _choose_output(self) -> None:
+        fmt = self._current_format()
+        labels = {
+            "qbx": "QBX (*.qbx)",
+            "zip": "ZIP (*.zip)",
+            "7z": "7-Zip (*.7z)",
+            "rar": "RAR (*.rar)",
+        }
         value, _ = QFileDialog.getSaveFileName(
             self,
-            "Salvar arquivo QBX",
-            self.output_edit.text() or str(self.base_dir / "arquivo.qbx"),
-            "QBX (*.qbx)",
+            "Salvar arquivo",
+            self.output_edit.text() or str(self.base_dir / f"arquivo.{fmt}"),
+            labels[fmt],
         )
         if value:
-            if not value.lower().endswith(".qbx"):
-                value += ".qbx"
+            if not value.lower().endswith(f".{fmt}"):
+                value += f".{fmt}"
             self.output_edit.setText(value)
 
-    def _profile_changed(self, *_args) -> None:
-        resilient = self.profile_combo.currentData() == "resilient"
-        self.repair_budget.setEnabled(resilient)
-        if resilient:
+    def _format_changed(self, *_args) -> None:
+        fmt = self._current_format()
+        is_qbx = fmt == "qbx"
+        for widget in (
+            self.profile_combo,
+            self.size_goal,
+            self.decode_goal,
+            self.repair_budget,
+            self.comment_edit,
+        ):
+            widget.setEnabled(is_qbx)
+
+        self._refresh_default_output(force=True)
+        self._profile_changed()
+
+        if fmt == "qbx":
             self.theory.setText(
-                "<b>QBX V3 — caminho completo:</b><br>"
-                "1) Content-Defined Chunking divide o conteúdo em blocos reutilizáveis.<br>"
-                "2) SHA-256 identifica blocos e a deduplicação global evita armazenar repetições.<br>"
-                "3) RAW, Zstandard, Deflate e LZMA competem como representações candidatas.<br>"
-                "4) AGRP faz planejamento global sob metas de tamanho/decodificação.<br>"
-                "5) ARK cria relações reversíveis selecionadas sob orçamento real de bytes.<br>"
-                "6) Na leitura, uma reconstrução só é aceita se o SHA-256 original conferir."
+                "<b>QBX 3.2 — tecnologia completa:</b><br>"
+                "1) arquivos compactados de entrada podem ser abertos antes da recompressão;<br>"
+                "2) CDC cria blocos pelo conteúdo;<br>"
+                "3) SHA-256 + deduplicação global removem repetição entre arquivos;<br>"
+                "4) RAW, Zstandard, Deflate e LZMA são medidos e podados por Pareto;<br>"
+                "5) AGRP escolhe o plano global;<br>"
+                "6) ARK seleciona relações reversíveis para recuperação;<br>"
+                "7) reconstruções só são aceitas se o SHA-256 original conferir."
+            )
+        elif fmt == "rar":
+            available = self.capabilities["rar"]["available"]
+            self.theory.setText(
+                "<b>RAR5 padrão:</b> o QBX pode primeiro abrir ZIP/7z/RAR/QBX de entrada "
+                "para evitar simplesmente recomprimir bytes já compactados e então pedir ao "
+                "RAR/WinRAR instalado para criar um RAR5 em compressão alta. "
+                "<b>AGRP e ARK não são gravados dentro do RAR padrão</b>, porque isso quebraria "
+                "a compatibilidade com o formato RAR."
+                + ("" if available else "<br><b>RAR/WinRAR não foi detectado neste computador.</b>")
+            )
+        elif fmt == "7z":
+            self.theory.setText(
+                "<b>7z padrão:</b> o bridge pode descompactar contêineres de entrada e criar "
+                "um novo 7z/LZMA2 sobre os arquivos reais. Isso evita o caso ZIP-dentro-de-7z. "
+                "O resultado continua sendo um 7z convencional; ARK permanece exclusivo do QBX."
             )
         else:
             self.theory.setText(
-                "<b>Modo compatível V2:</b> mantém CDC, SHA-256, deduplicação e os perfis "
-                "de compressão existentes. Se quiser a tecnologia completa AGRP + ARK, "
-                "use <b>Resiliente V3</b>."
+                "<b>ZIP padrão:</b> o bridge pode descompactar contêineres de entrada e criar "
+                "ZIP/Deflate sobre os arquivos reais. O resultado mantém ampla compatibilidade. "
+                "O mecanismo ARK não é embutido no ZIP padrão."
             )
+
+    def _profile_changed(self, *_args) -> None:
+        if self._current_format() != "qbx":
+            return
+        resilient = self.profile_combo.currentData() == "resilient"
+        self.repair_budget.setEnabled(resilient)
 
     def _accept_checked(self) -> None:
         if not self.sources:
             QMessageBox.warning(self, APP_NAME, "Adicione pelo menos um arquivo ou pasta.")
             return
+
+        fmt = self._current_format()
+        if not self.capabilities[fmt]["available"]:
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                "Esse formato não está disponível neste computador. "
+                "Para gerar RAR, instale WinRAR/RAR ou configure QBX_RAR_EXE.",
+            )
+            return
+
         output = self.output_edit.text().strip()
         if not output:
-            QMessageBox.warning(self, APP_NAME, "Escolha o arquivo QBX de saída.")
+            QMessageBox.warning(self, APP_NAME, "Escolha o arquivo de saída.")
             return
+
         out = Path(output)
-        if out.suffix.lower() != ".qbx":
-            out = out.with_suffix(out.suffix + ".qbx" if out.suffix else ".qbx")
+        if out.suffix.lower() != f".{fmt}":
+            out = out.with_suffix(f".{fmt}")
             self.output_edit.setText(str(out))
+
         if any(src.resolve() == out.resolve() for src in self.sources):
             QMessageBox.warning(self, APP_NAME, "O arquivo de saída não pode ser uma das fontes.")
             return
@@ -496,6 +592,8 @@ class CreateArchiveDialog(QDialog):
         return {
             "sources": list(self.sources),
             "output": Path(self.output_edit.text()),
+            "output_format": self._current_format(),
+            "optimize_source_archives": self.optimize_checkbox.isChecked(),
             "profile": str(self.profile_combo.currentData()),
             "max_size_mb": max_size if max_size > 0 else None,
             "max_decode_ms": max_decode if max_decode > 0 else None,
@@ -564,7 +662,7 @@ class QBXWindow(QMainWindow):
         return a
 
     def _build_actions(self) -> None:
-        self.act_new = self._action("Criar QBX", "new", self.create_new_archive, "Ctrl+N")
+        self.act_new = self._action("Criar Arquivo", "new", self.create_new_archive, "Ctrl+N")
         self.act_open = self._action("Abrir arquivo...", "open", self.choose_archive, "Ctrl+O")
         self.act_add = self._action("Adicionar", "add", self.add_clicked, "Alt+A")
         self.act_extract = self._action("Extrair Para", "extract", self.extract_clicked, "Alt+E")
@@ -984,29 +1082,17 @@ class QBXWindow(QMainWindow):
         self.refresh_view()
 
     def _stage_and_pack(self, options: dict) -> dict:
-        sources: list[Path] = options["sources"]
-        output: Path = options["output"]
-        kwargs = {
-            "profile": options["profile"],
-            "max_size_mb": options["max_size_mb"],
-            "max_decode_ms": options["max_decode_ms"],
-            "repair_budget_pct": options["repair_budget_pct"],
-            "comment": options["comment"],
-        }
-
-        if len(sources) == 1:
-            return pack(sources[0], output, **kwargs)
-
-        with tempfile.TemporaryDirectory(prefix="qbx-stage-") as td:
-            stage = Path(td) / "content"
-            stage.mkdir()
-            for src in sources:
-                target = stage / src.name
-                if src.is_dir():
-                    shutil.copytree(src, target, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(src, target)
-            return pack(stage, output, **kwargs)
+        return bridge_create_archive(
+            options["sources"],
+            options["output"],
+            output_format=options["output_format"],
+            optimize_source_archives=options["optimize_source_archives"],
+            qbx_profile=options["profile"],
+            max_size_mb=options["max_size_mb"],
+            max_decode_ms=options["max_decode_ms"],
+            repair_budget_pct=options["repair_budget_pct"],
+            comment=options["comment"],
+        )
 
     def create_new_archive(self) -> None:
         selected = [
@@ -1038,25 +1124,43 @@ class QBXWindow(QMainWindow):
             else options["profile"].upper()
         )
         self._run(
-            f"Criando QBX com {profile_label}...",
+            f"Criando {options['output_format'].upper()} com {profile_label}...",
             lambda: self._stage_and_pack(options),
             lambda result: self._archive_created(out, result),
         )
 
     def _archive_created(self, out: Path, result: dict) -> None:
-        QMessageBox.information(
-            self,
-            "Arquivo QBX criado",
-            f"Arquivo criado com sucesso.\n\n"
-            f"Saída: {out.name}\n"
-            f"Tamanho original: {human_bytes(result.get('original', 0))}\n"
-            f"Tamanho QBX: {human_bytes(result.get('archive', 0))}\n"
-            f"Perfil: {result.get('profile', '')}\n"
-            f"Planner: {result.get('planner', 'legacy')}\n"
-            f"Relações ARK: {result.get('repair_edges', 0)}\n"
-            f"SHA-256: {result.get('archive_sha256', '')[:24]}...",
-        )
-        self.open_archive(out)
+        fmt = result.get("output_format", out.suffix.lstrip(".")).upper()
+        optimized = result.get("optimized_source_archives", 0)
+        details = [
+            "Arquivo criado com sucesso.",
+            "",
+            f"Saída: {Path(result.get('output', out)).name}",
+            f"Formato: {fmt}",
+            f"Tamanho: {human_bytes(result.get('archive', 0))}",
+            f"Contêineres de entrada otimizados: {optimized}",
+        ]
+        if result.get("output_format") == "qbx":
+            details.extend(
+                [
+                    f"Perfil: {result.get('profile', '')}",
+                    f"Planner: {result.get('planner', 'legacy')}",
+                    f"Relações ARK: {result.get('repair_edges', 0)}",
+                    f"SHA-256: {result.get('archive_sha256', '')[:24]}...",
+                ]
+            )
+        else:
+            details.append(f"Tecnologia do formato: {result.get('format_technology', '')}")
+            details.append("AGRP/ARK embutido: não — saída padrão compatível")
+
+        QMessageBox.information(self, "Arquivo criado", "\n".join(details))
+
+        if result.get("output_format") == "qbx":
+            self.open_archive(Path(result.get("output", out)))
+        else:
+            self.fs_dir = Path(result.get("output", out)).parent
+            self.refresh_view()
+
 
     # ---------- toolbar commands ----------
 
@@ -1359,7 +1463,9 @@ class QBXWindow(QMainWindow):
             "• AGRP — escolhe o plano global conforme tamanho e custo de leitura.\n"
             "• ARK — seleciona relações reversíveis entre blocos sob orçamento real de bytes.\n"
             "• Recuperação autenticada — um bloco reconstruído só é aceito se o SHA-256 conferir.\n\n"
-            "Na interface, use Criar QBX e escolha Resiliente V3 para ativar o caminho completo."
+            "Na interface, use Criar Arquivo. Para .qbx, escolha Resiliente V3 para o caminho completo. "
+            "Para ZIP/7z/RAR, o Bridge Universal pode abrir previamente arquivos compactados de entrada e então "
+            "gerar um formato padrão; AGRP e ARK continuam exclusivos do contêiner .qbx para não quebrar compatibilidade."
         )
 
     def show_about(self) -> None:

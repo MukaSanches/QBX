@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qbx-archive"
-version = "2.0.0"
-description = "QBX 2.0 adaptive archive engine with AGRP global representation planning"
+version = "3.0.0"
+description = "QBX 3.0 resilient archive engine with AGRP global planning and ARK repair lattice"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -18,6 +18,8 @@ keywords = [
   "compression",
   "deduplication",
   "content-defined-chunking",
+  "resilience",
+  "repair-lattice",
   "qubo",
   "quantum-computing",
 ]

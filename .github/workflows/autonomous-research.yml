@@ -25,6 +25,8 @@ jobs:
     name: Pesquisar, provar e publicar somente se melhorar
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      GEMINI_CLI_TRUST_WORKSPACE: "true"
 
     steps:
       - name: Baixar o QBX

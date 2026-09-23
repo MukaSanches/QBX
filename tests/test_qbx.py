@@ -168,3 +168,40 @@ def test_invalid_magic(tmp_path):
 
     with pytest.raises(QBXError):
         verify(archive)
+
+
+def test_adaptive_v2_roundtrip_and_planner_manifest(tmp_path):
+    src = tmp_path / "adaptive"
+    src.mkdir()
+    (src / "text.txt").write_bytes(b"QBX AGRP V2\n" * 12000)
+    (src / "pattern.bin").write_bytes(bytes(range(256)) * 350)
+    rng = random.Random(20260923)
+    (src / "random.bin").write_bytes(rng.randbytes(90000))
+
+    archive = tmp_path / "adaptive.qbx"
+    restored = tmp_path / "restored"
+
+    result = pack(src, archive, profile="adaptive")
+    manifest = inspect(archive)
+
+    assert result["profile"] == "adaptive-v2"
+    assert result["planner"] == "AGRP"
+    assert manifest["product_version"] == "2.0.0"
+    assert manifest["planner"]["name"] == "AGRP"
+    assert manifest["planner"]["version"] == 2
+    assert manifest["planner"]["planned_stored_bytes"] <= manifest["planner"]["size_budget_bytes"]
+
+    assert verify(archive)["ok"] is True
+    unpack(archive, restored)
+
+    for original in src.rglob("*"):
+        if original.is_file():
+            copy = restored / original.relative_to(src)
+            assert file_hash(original) == file_hash(copy)
+
+
+def test_adaptive_v2_rejects_invalid_goal(tmp_path):
+    src = tmp_path / "x.bin"
+    src.write_bytes(b"x" * 1000)
+    with pytest.raises(QBXError):
+        pack(src, tmp_path / "x.qbx", profile="adaptive", max_size_mb=0)

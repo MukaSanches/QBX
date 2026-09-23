@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+benchmark_data/
+benchmark_restore/
+benchmark.qbx
+testdata/
+*.egg-info/
+dist/
+build/

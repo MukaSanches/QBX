@@ -1,81 +1,48 @@
-# QBX 2.0
+# QBX 3.0
 
 [![CI](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml)
 [![Windows product](https://github.com/MukaSanches/QBX/actions/workflows/build-windows.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/build-windows.yml)
 
-QBX 2.0 is an experimental adaptive archive engine for Windows and Python. It combines content-defined chunking, global SHA-256 deduplication, multiple block representations and **AGRP — Adaptive Global Representation Planner**.
+QBX is an experimental adaptive archive format and Windows archive manager. **QBX 3.0** combines the existing AGRP global compression planner with **ARK — Adaptive Reconstruction Knowledge Lattice**, a bounded repair-topology planner designed to make some corrupted primary block representations reconstructable without requiring quantum hardware.
 
-The product does not require quantum hardware. Quantum/QUBO work remains a research path for the planning problem.
+## V3 pipeline
 
-## What is new in 2.0
-
-QBX 1.x selected the smallest acceptable representation block by block. QBX 2.0 adds a global planning layer:
-
-```
+```text
 files
   -> content-defined chunks
-  -> SHA-256 deduplication
+  -> SHA-256 global deduplication
   -> RAW / Zstandard / Deflate / LZMA candidates
-  -> measured encode/decode latency
   -> Pareto pruning
-  -> AGRP global goal-constrained planning
-  -> QBX container
-  -> full SHA-256 verification on extraction
+  -> AGRP primary planning
+  -> ARK reversible repair candidates
+  -> bounded exact repair-topology search under byte budget
+  -> QBX V3 container
+  -> SHA-256 verified extraction / self-recovery / repair
 ```
 
-The `adaptive` profile is now the default in the Windows GUI and CLI.
+The decoder never needs a QPU. Quantum/QUBO work remains a research direction for planner optimization; no quantum-advantage claim is made.
 
-## Scientific validation
+## Windows application
 
-The research prototype was validated on qBraid on 2026-09-23. A small exact optimization problem was mapped to QUBO and exhaustively enumerated:
+The Windows GUI now follows a familiar classic archive-manager workflow with original QBX branding:
 
-- 18 QUBO variables;
-- 262,144 states examined;
-- exact objective: `0.25243298047920626`;
-- QUBO objective: `0.25243298047920626`;
-- equivalence: **true**.
+- menu bar and large command toolbar;
+- address bar and folder navigation inside an archive;
+- details view with name, size, block count, type, modified time and SHA-256 prefix;
+- create/open/add/extract/test/view/delete/find/info/comment/favorites/repair;
+- configurable ARK repair-byte budget;
+- `.qbx` file association and Explorer context-menu commands when installed.
 
-That result validates the tested mapping. It does **not** demonstrate quantum advantage.
+The project does not copy WinRAR source code, proprietary icons or trademarked branding.
 
-### AGRP trade-off benchmark
+Windows CI produces:
 
-On the validated 12-block synthetic corpus, the local-smallest plan stored 526,921 payload bytes with a measured decode sum of 1,143,671 ns. AGRP stored 537,088 bytes and reduced the measured decode sum to 426,689 ns.
+- `QBX-Setup-3.0.0.exe`;
+- `QBX-Portable-3.0.0.zip`;
+- `SHA256SUMS.txt`;
+- `v3_latest.json` reproducible benchmark evidence.
 
-![AGRP stored-byte benchmark](docs/assets/agrp_size.svg)
-
-![AGRP decode benchmark](docs/assets/agrp_decode.svg)
-
-Observed on that corpus:
-
-- payload size delta: **+1.93%** versus local-smallest;
-- measured decode-latency reduction: **62.69%**;
-- peak dynamic-planner frontier: **60 states**;
-- planner validation runtime: **5.003 s**.
-
-These figures are dataset- and machine-specific observations, not universal performance claims. Raw data is stored in [benchmarks/results/qbraid_agrp_validation_2026-09-23.json](benchmarks/results/qbraid_agrp_validation_2026-09-23.json). See [docs/SCIENCE_V2.md](docs/SCIENCE_V2.md).
-
-## Windows downloads
-
-The Windows workflow builds:
-
-- `QBX-Setup-2.0.0.exe` — graphical installer;
-- `QBX-Portable-2.0.0.zip` — portable GUI + CLI;
-- `SHA256SUMS.txt` — integrity hashes.
-
-The installer associates `.qbx` files with the graphical application. The binaries are currently not code-signed, so Windows SmartScreen may show an unknown-publisher warning.
-
-## GUI
-
-The graphical application supports:
-
-- selecting a file or folder;
-- `adaptive`, `fast`, `balanced` and `smallest` profiles;
-- creating a QBX archive;
-- inspecting archive contents;
-- full integrity verification;
-- safe extraction.
-
-`adaptive` runs AGRP. The older profiles remain available when predictable compression behavior or lower packing overhead is preferred.
+The installer is not Authenticode-signed, so Windows SmartScreen may show an unknown-publisher warning.
 
 ## CLI
 
@@ -85,102 +52,93 @@ Install from source:
 python -m pip install -e .
 ```
 
-Create with AGRP:
+Create a resilient V3 archive:
 
 ```bash
-qbx pack MyFolder MyArchive.qbx --profile adaptive
+qbx pack MyFolder MyArchive.qbx
 ```
 
-Optional global budgets:
+Explicit V3 options:
 
 ```bash
-qbx pack MyFolder MyArchive.qbx --profile adaptive --max-size-mb 500 --max-decode-ms 250
+qbx pack MyFolder MyArchive.qbx --profile resilient --repair-budget-pct 5 --comment "backup"
 ```
 
-Traditional profiles:
+QBX 2.0 AGRP and traditional profiles remain available:
 
 ```bash
-qbx pack MyFolder MyArchive.qbx --profile fast
-qbx pack MyFolder MyArchive.qbx --profile balanced
-qbx pack MyFolder MyArchive.qbx --profile smallest
+qbx pack MyFolder v2-adaptive.qbx --profile adaptive
+qbx pack MyFolder fast.qbx --profile fast
+qbx pack MyFolder balanced.qbx --profile balanced
+qbx pack MyFolder smallest.qbx --profile smallest
 ```
 
-Verify, inspect and extract:
+Inspect, test and extract:
 
 ```bash
-qbx verify MyArchive.qbx
 qbx list MyArchive.qbx
-qbx unpack MyArchive.qbx RestoredFolder
+qbx test MyArchive.qbx
+qbx extract MyArchive.qbx RestoredFolder
 ```
 
-Existing destination files are not overwritten unless `--overwrite` is explicitly supplied.
-
-## How AGRP works
-
-For each unique block, QBX 2.0 measures a candidate set containing RAW, multiple Zstandard levels, Deflate levels and LZMA levels. It removes representations that are simultaneously worse in stored size, encode latency and decode latency.
-
-The remaining Pareto candidates are fed to a bounded global dynamic planner. By default, the planner derives a local-smallest baseline, allows a small size budget above that baseline, and searches for a lower-latency global combination. User-supplied size/decode budgets override the defaults.
-
-Planner metadata is embedded in the archive manifest so the decision process can be inspected with `qbx list`.
-
-## Reproducible product benchmark
-
-The Windows product pipeline also ran the real QBX 2.0 pack/verify/unpack path on a deterministic **5,624,000-byte** synthetic corpus containing text, patterns, pseudo-random data and duplicate files.
-
-| Format/profile | Archive bytes | Ratio | Pack | Unpack |
-| --- | ---: | ---: | ---: | ---: |
-| QBX balanced | 1,004,338 | 17.858% | 1.584 s | 0.077 s |
-| QBX smallest | 1,004,336 | 17.858% | 1.758 s | 0.078 s |
-| QBX adaptive AGRP | 1,004,896 | 17.868% | 3.029 s | 0.076 s |
-| ZIP Deflate 9 | 2,011,829 | 35.772% | 0.092 s | 0.016 s |
-
-![QBX 2.0 product archive-size benchmark](docs/assets/product_benchmark_size.svg)
-
-![QBX 2.0 product timing benchmark](docs/assets/product_benchmark_time.svg)
-
-On this corpus, QBX's global deduplication materially reduced archive size relative to ordinary ZIP because duplicate files were intentionally present. ZIP packed and unpacked faster. AGRP spent additional packing time profiling/planning and produced nearly the same archive size as the local-smallest QBX mode while giving the fastest QBX unpack measurement in this run.
-
-These are **corpus- and runner-specific observations**, not universal claims. The verified Windows run is recorded in [benchmarks/results/v2_windows_2026-09-23.json](benchmarks/results/v2_windows_2026-09-23.json).
-
-Run the benchmark yourself:
+Rebuild a clean archive when V3 recovery paths can reconstruct damaged primary data:
 
 ```bash
-python benchmarks/v2_benchmark.py
+qbx repair Damaged.qbx Repaired.qbx
 ```
 
-It compares QBX balanced, smallest, adaptive AGRP and ZIP/Deflate level 9. Every QBX result is verified, extracted and checked against the deterministic source tree hash before the benchmark succeeds.
+## What ARK does
 
-## Integrity and safety
+For small deterministic groups of unique blocks, V3 generates reversible pairwise repair candidates and measures their actual compressed cost. It builds a connected baseline, applies a real byte ceiling and then exactly enumerates a bounded candidate frontier to maximize topology survival under loss of up to two repair representations.
 
-QBX uses:
+When a primary record fails decompression or hash validation, the decoder can recursively use a valid repair delta plus another surviving block. A candidate reconstruction is accepted only if its SHA-256 equals the original content-addressed block identity.
 
-- SHA-256 block identity;
-- SHA-256 reconstructed-file verification;
-- global block deduplication;
-- safe relative-path validation;
-- refusal to overwrite by default;
-- bounded manifest/block limits;
-- atomic archive writes;
-- atomic extracted-file replacement.
+See [docs/QBX-V3.md](docs/QBX-V3.md) for the full engineering description.
 
-QBX 2.0 is still an experimental format implementation. Keep independent copies of important data until it has broader interoperability testing, fuzzing and independent security review.
+## ARK-2 research evidence
 
-## Quantum research
+The final pre-product ARK-2 experiment on its deterministic research instance reported:
 
-The planner problem can be represented as QUBO/Ising for QAOA and other solvers. The archive format itself remains fully classical and can always be decoded without a QPU.
+- baseline: 2,929 repair bytes, 36/56 survival scenarios (64.2857143%);
+- ARK: 2,920 repair bytes, 41/46 (89.1304348%);
+- exact search: 1,020,680 configurations examined, 21,897 feasible;
+- physical/model validation: 322 scenarios;
+- 319/319 predicted-recoverable scenarios reconstructed correctly;
+- 3/3 predicted-unrecoverable scenarios remained unrecoverable;
+- zero false positives and zero false negatives;
+- bit-perfect whenever recoverable.
 
-No claim of quantum advantage is made.
+Those are experimental results for the tested model and corpus, not a universal performance claim or proof of patentability.
+
+## Reproducible V3 product benchmark
+
+Run:
+
+```bash
+python benchmarks/v3_benchmark.py
+```
+
+The benchmark builds a deterministic corpus, exercises QBX 2.0 AGRP, QBX 3.0 resilient mode and ZIP/Deflate, verifies round trips, deliberately corrupts one ARK-protected V3 primary record, and requires the V3 decoder to reconstruct the original tree hash exactly. Results are written to `benchmarks/results/v3_latest.json`.
+
+## Compatibility and safety
+
+The `qbx.api` layer detects V2 and V3 archives automatically. Existing V2 archives remain readable and extractable.
+
+QBX uses safe relative-path validation, refuses overwrite by default, performs atomic archive writes, authenticates primary and reconstructed content with SHA-256, and verifies reconstructed files end-to-end.
+
+V3 remains an experimental format. Keep independent copies of important data until the format has broader interoperability testing, fuzzing, independent security review and long-term archival experience.
+
+## Patent / invention status
+
+The repository includes [docs/INVENTION_DISCLOSURE_V3.md](docs/INVENTION_DISCLOSURE_V3.md), which records the technical mechanism and possible claim directions for professional evaluation. A passing experiment or implementation does **not** make a technology patented, patent-pending, novel in the legal sense, or free of third-party rights.
 
 ## Development
-
-Run the test suite:
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m pytest -q
+python benchmarks/v3_benchmark.py
 ```
-
-Windows CI also builds and self-tests the GUI and CLI executables before uploading artifacts.
 
 ## License
 

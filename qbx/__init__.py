@@ -1,3 +1,3 @@
 """QBX adaptive archive format and research project."""
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="270" viewBox="0 0 920 270">
+<rect width="920" height="270" fill="#0d1117"/>
+<text x="30" y="38" fill="#f0f6fc" font-family="Segoe UI,Arial" font-size="24" font-weight="700">QBX 2.0 AGRP — measured decode latency</text>
+<text x="30" y="65" fill="#8b949e" font-family="Segoe UI,Arial" font-size="14">Same validated corpus • lower is better</text>
+<text x="30" y="122" fill="#c9d1d9" font-family="Segoe UI,Arial" font-size="15">Local smallest</text>
+<rect x="190" y="101" width="650" height="30" rx="5" fill="#58a6ff"/>
+<text x="202" y="122" fill="#ffffff" font-family="Consolas,monospace" font-size="14">1,143,671 ns</text>
+<text x="30" y="190" fill="#c9d1d9" font-family="Segoe UI,Arial" font-size="15">AGRP global</text>
+<rect x="190" y="169" width="243" height="30" rx="5" fill="#3fb950"/>
+<text x="202" y="190" fill="#ffffff" font-family="Consolas,monospace" font-size="14">426,689 ns</text>
+<text x="30" y="242" fill="#8b949e" font-family="Segoe UI,Arial" font-size="13">Observed reduction: 62.69% in the planner's measured decode-latency sum on this corpus.</text>
+</svg>

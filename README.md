@@ -1,9 +1,9 @@
-# QBX 3.0.1
+# QBX 3.1.0
 
 [![CI](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml)
 [![Windows product](https://github.com/MukaSanches/QBX/actions/workflows/build-windows.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/build-windows.yml)
 
-QBX is an experimental adaptive archive format and Windows archive manager. **QBX 3.0.1** combines the existing AGRP global compression planner with **ARK — Adaptive Reconstruction Knowledge Lattice**, a bounded repair-topology planner designed to make some corrupted primary block representations reconstructable without requiring quantum hardware.
+QBX is an experimental adaptive archive format and Windows archive manager. **QBX 3.1.0** combines the existing AGRP global compression planner with **ARK — Adaptive Reconstruction Knowledge Lattice**, a bounded repair-topology planner designed to make some corrupted primary block representations reconstructable without requiring quantum hardware.
 
 ## V3 pipeline
 
@@ -37,12 +37,19 @@ The project does not copy WinRAR source code, proprietary icons or trademarked b
 
 Windows CI produces:
 
-- `QBX-Setup-3.0.1.exe`;
-- `QBX-Portable-3.0.1.zip`;
+- `QBX-Setup-3.1.0.exe`;
+- `QBX-Portable-3.1.0.zip`;
 - `SHA256SUMS.txt`;
 - `v3_latest.json` reproducible benchmark evidence.
 
 The installer is not Authenticode-signed, so Windows SmartScreen may show an unknown-publisher warning.
+
+
+## QBX 3.1 desktop experience
+
+The Windows application now uses a Qt/PySide6 desktop shell designed around the familiar workflow of classic archive managers while keeping QBX branding and original runtime-drawn icons. When no archive is open, the main window browses the filesystem directly; selecting files or folders and pressing **Criar QBX** opens one visual creation dialog.
+
+That dialog exposes the actual QBX technology instead of hiding it behind a generic compression slider: **Resilient V3** activates content-defined chunking, SHA-256 content identity, global deduplication, measured multi-codec candidates, Pareto pruning, AGRP global planning and the ARK repair lattice. Advanced users can set a target archive size, target decode cost and ARK repair-byte budget before creating the archive.
 
 ## CLI
 

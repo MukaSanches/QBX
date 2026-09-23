@@ -7,12 +7,38 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
-import time
+import traceback
 from pathlib import Path, PurePosixPath
-import tkinter as tk
-import tkinter.font as tkfont
-from tkinter import filedialog, messagebox, simpledialog, ttk
+
+from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
+from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QStatusBar,
+    QStyle,
+    QTextEdit,
+    QToolBar,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from qbx import __version__
 from qbx.api import inspect, pack, repair, unpack, verify
@@ -20,16 +46,29 @@ from qbx.archive_ops import add_sources, delete_entries, set_comment
 
 APP_NAME = "QBX"
 CONFIG_PATH = Path.home() / ".qbx_gui.json"
+ROLE_PATH = int(Qt.ItemDataRole.UserRole)
+ROLE_KIND = ROLE_PATH + 1
 
 
-def human_bytes(value: int) -> str:
+def human_bytes(value: int | float | None) -> str:
+    if value is None:
+        return "—"
     units = ("B", "KB", "MB", "GB", "TB")
     amount = float(value)
     for unit in units:
         if amount < 1024 or unit == units[-1]:
-            return f"{int(amount)} B" if unit == "B" else f"{amount:.2f} {unit}"
+            return f"{int(amount):,} B".replace(",", ".") if unit == "B" else f"{amount:.2f} {unit}"
         amount /= 1024
-    return f"{value} B"
+    return str(value)
+
+
+def open_with_system(path: Path) -> None:
+    if os.name == "nt":
+        os.startfile(str(path))  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
 
 
 def self_test() -> int:
@@ -38,7 +77,7 @@ def self_test() -> int:
             root = Path(td)
             src = root / "input"
             src.mkdir()
-            payload = b"QBX V3 GUI SELF TEST\n" * 1200
+            payload = b"QBX 3.1 GUI SELF TEST\n" * 1400
             (src / "hello.txt").write_bytes(payload)
             (src / "copy.txt").write_bytes(payload)
             archive = root / "selftest.qbx"
@@ -52,40 +91,457 @@ def self_test() -> int:
                 and (restored / "hello.txt").read_bytes() == payload
             ) else 2
     except Exception:
+        traceback.print_exc()
         return 1
 
 
-class QBXApp(tk.Tk):
-    """Classic Windows archive-manager shell with original QBX branding."""
+class WorkerSignals(QObject):
+    done = Signal(object)
+    error = Signal(str)
 
+
+class Worker(QRunnable):
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+        self.signals = WorkerSignals()
+
+    def run(self):
+        try:
+            value = self.fn()
+        except Exception:
+            self.signals.error.emit(traceback.format_exc())
+        else:
+            self.signals.done.emit(value)
+
+
+def icon_for(kind: str, size: int = 44) -> QIcon:
+    """Original QBX vector-like toolbar icons drawn at runtime."""
+    colors = {
+        "add": "#f0b429",
+        "extract": "#5ab0ff",
+        "test": "#ef6c73",
+        "view": "#76d275",
+        "delete": "#8b96a5",
+        "find": "#5e83ff",
+        "wizard": "#b46cff",
+        "info": "#53a7ff",
+        "repair": "#65d44f",
+        "comment": "#a8b3c2",
+        "new": "#36c9a2",
+        "open": "#5ab0ff",
+        "up": "#c7d2e0",
+        "folder": "#f0b429",
+        "file": "#8aa7c8",
+        "archive": "#4bc7ff",
+    }
+    glyphs = {
+        "add": "+",
+        "extract": "↓",
+        "test": "✓",
+        "view": "▤",
+        "delete": "×",
+        "find": "⌕",
+        "wizard": "✦",
+        "info": "i",
+        "repair": "↻",
+        "comment": "≡",
+        "new": "+",
+        "open": "▣",
+        "up": "↑",
+        "folder": "■",
+        "file": "□",
+        "archive": "Q",
+    }
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    color = QColor(colors.get(kind, "#5ab0ff"))
+    p.setPen(QPen(color.lighter(140), max(1, size // 22)))
+    p.setBrush(color.darker(135))
+    margin = max(3, size // 10)
+    p.drawRoundedRect(margin, margin, size - 2 * margin, size - 2 * margin, size // 7, size // 7)
+    p.setPen(QColor("#ffffff"))
+    font = QFont("Segoe UI Symbol", max(10, int(size * 0.42)), QFont.Weight.Bold)
+    p.setFont(font)
+    p.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, glyphs.get(kind, "?"))
+    p.end()
+    return QIcon(pix)
+
+
+def app_icon() -> QIcon:
+    return icon_for("archive", 64)
+
+
+DARK_STYLESHEET = """
+QMainWindow, QWidget {
+    background: #202020;
+    color: #e9e9e9;
+    font-family: "Segoe UI";
+    font-size: 10pt;
+}
+QMenuBar {
+    background: #202020;
+    color: #f3f3f3;
+    padding: 2px;
+}
+QMenuBar::item {
+    padding: 6px 10px;
+    background: transparent;
+}
+QMenuBar::item:selected {
+    background: #343434;
+}
+QMenu {
+    background: #252525;
+    color: #f3f3f3;
+    border: 1px solid #555;
+}
+QMenu::item {
+    padding: 7px 30px 7px 24px;
+}
+QMenu::item:selected {
+    background: #0b5ca8;
+}
+QToolBar {
+    background: #242424;
+    border: 0;
+    border-bottom: 1px solid #555;
+    spacing: 3px;
+    padding: 4px 6px;
+}
+QToolButton {
+    background: transparent;
+    color: #efefef;
+    border: 0;
+    padding: 3px 8px;
+    min-width: 58px;
+}
+QToolButton:hover {
+    background: #353535;
+    border-radius: 4px;
+}
+QLineEdit, QComboBox {
+    background: #292929;
+    color: #f0f0f0;
+    border: 1px solid #575757;
+    padding: 4px 6px;
+}
+QPushButton {
+    background: #303030;
+    color: #eeeeee;
+    border: 1px solid #5d5d5d;
+    padding: 5px 12px;
+}
+QPushButton:hover {
+    background: #3b3b3b;
+}
+QTreeWidget {
+    background: #1f1f1f;
+    alternate-background-color: #232323;
+    color: #eaeaea;
+    border: 1px solid #555;
+    outline: 0;
+}
+QTreeWidget::item {
+    height: 25px;
+    padding-left: 2px;
+}
+QTreeWidget::item:selected {
+    background: #0878d1;
+    color: white;
+}
+QHeaderView::section {
+    background: #262626;
+    color: #efefef;
+    border: 0;
+    border-right: 1px solid #3a3a3a;
+    border-bottom: 1px solid #4a4a4a;
+    padding: 5px 7px;
+    font-weight: 600;
+}
+QStatusBar {
+    background: #242424;
+    color: #e8e8e8;
+    border-top: 1px solid #555;
+}
+QProgressBar {
+    background: #191919;
+    border: 1px solid #555;
+    height: 12px;
+}
+QProgressBar::chunk {
+    background: #0878d1;
+}
+"""
+
+
+
+class CreateArchiveDialog(QDialog):
+    """Single, visual place to create a QBX archive and expose the V3 theory."""
+
+    def __init__(
+        self,
+        parent: QWidget,
+        initial_sources: list[Path],
+        base_dir: Path,
+        default_repair_budget: float,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("Criar arquivo QBX")
+        self.setWindowIcon(app_icon())
+        self.resize(720, 620)
+        self.base_dir = base_dir
+        self.sources: list[Path] = []
+        self._build_ui(default_repair_budget)
+        for path in initial_sources:
+            self.add_source(path)
+        self._refresh_default_output()
+
+    def _build_ui(self, default_repair_budget: float) -> None:
+        layout = QVBoxLayout(self)
+
+        title = QLabel(
+            "<h2>Criar novo arquivo QBX</h2>"
+            "<p>Escolha os dados e o objetivo. O modo <b>Resiliente V3</b> ativa "
+            "<b>CDC + deduplicação global + seleção adaptativa de codecs + AGRP + ARK + SHA-256</b>.</p>"
+        )
+        title.setWordWrap(True)
+        layout.addWidget(title)
+
+        source_label = QLabel("<b>1. Arquivos e pastas</b>")
+        layout.addWidget(source_label)
+
+        self.source_list = QListWidget()
+        self.source_list.setMinimumHeight(120)
+        layout.addWidget(self.source_list)
+
+        source_buttons = QHBoxLayout()
+        add_files = QPushButton("Adicionar arquivos")
+        add_folder = QPushButton("Adicionar pasta")
+        remove = QPushButton("Remover selecionado")
+        add_files.clicked.connect(self._choose_files)
+        add_folder.clicked.connect(self._choose_folder)
+        remove.clicked.connect(self._remove_selected)
+        source_buttons.addWidget(add_files)
+        source_buttons.addWidget(add_folder)
+        source_buttons.addWidget(remove)
+        source_buttons.addStretch(1)
+        layout.addLayout(source_buttons)
+
+        form = QFormLayout()
+
+        output_row = QWidget()
+        output_layout = QHBoxLayout(output_row)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        self.output_edit = QLineEdit()
+        browse_output = QPushButton("...")
+        browse_output.setFixedWidth(42)
+        browse_output.clicked.connect(self._choose_output)
+        output_layout.addWidget(self.output_edit, 1)
+        output_layout.addWidget(browse_output)
+        form.addRow("2. Arquivo de saída:", output_row)
+
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItem("Resiliente V3 — AGRP + ARK (recomendado)", "resilient")
+        self.profile_combo.addItem("Adaptativo V2 — AGRP", "adaptive")
+        self.profile_combo.addItem("Menor tamanho", "smallest")
+        self.profile_combo.addItem("Equilibrado", "balanced")
+        self.profile_combo.addItem("Rápido", "fast")
+        self.profile_combo.currentIndexChanged.connect(self._profile_changed)
+        form.addRow("3. Estratégia:", self.profile_combo)
+
+        self.size_goal = QDoubleSpinBox()
+        self.size_goal.setRange(0.0, 1024 * 1024.0)
+        self.size_goal.setDecimals(2)
+        self.size_goal.setSuffix(" MB")
+        self.size_goal.setSpecialValueText("Sem limite")
+        self.size_goal.setToolTip("Objetivo opcional de tamanho máximo para o planejador global AGRP.")
+        form.addRow("Meta de tamanho:", self.size_goal)
+
+        self.decode_goal = QDoubleSpinBox()
+        self.decode_goal.setRange(0.0, 60_000.0)
+        self.decode_goal.setDecimals(1)
+        self.decode_goal.setSuffix(" ms")
+        self.decode_goal.setSpecialValueText("Sem limite")
+        self.decode_goal.setToolTip("Objetivo opcional de custo estimado de decodificação para o AGRP.")
+        form.addRow("Meta de decodificação:", self.decode_goal)
+
+        self.repair_budget = QDoubleSpinBox()
+        self.repair_budget.setRange(0.0, 100.0)
+        self.repair_budget.setDecimals(2)
+        self.repair_budget.setSuffix(" %")
+        self.repair_budget.setValue(default_repair_budget)
+        self.repair_budget.setToolTip(
+            "Percentual máximo do payload primário reservado para relações reversíveis ARK."
+        )
+        form.addRow("Orçamento ARK:", self.repair_budget)
+
+        self.comment_edit = QTextEdit()
+        self.comment_edit.setMaximumHeight(80)
+        self.comment_edit.setPlaceholderText("Comentário opcional armazenado no manifesto QBX...")
+        form.addRow("Comentário:", self.comment_edit)
+
+        layout.addLayout(form)
+
+        self.theory = QLabel()
+        self.theory.setWordWrap(True)
+        self.theory.setTextFormat(Qt.TextFormat.RichText)
+        self.theory.setStyleSheet(
+            "QLabel { background:#182635; border:1px solid #31546f; "
+            "border-radius:6px; padding:10px; color:#dfefff; }"
+        )
+        layout.addWidget(self.theory)
+        self._profile_changed()
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Criar QBX")
+        buttons.accepted.connect(self._accept_checked)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def add_source(self, path: Path) -> None:
+        path = path.resolve()
+        if not path.exists() or path in self.sources:
+            return
+        self.sources.append(path)
+        self.source_list.addItem(str(path))
+        self._refresh_default_output()
+
+    def _choose_files(self) -> None:
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Selecionar arquivos", str(self.base_dir), "Todos os arquivos (*)"
+        )
+        for value in files:
+            self.add_source(Path(value))
+
+    def _choose_folder(self) -> None:
+        value = QFileDialog.getExistingDirectory(self, "Selecionar pasta", str(self.base_dir))
+        if value:
+            self.add_source(Path(value))
+
+    def _remove_selected(self) -> None:
+        rows = sorted({self.source_list.row(item) for item in self.source_list.selectedItems()}, reverse=True)
+        for row in rows:
+            self.source_list.takeItem(row)
+            del self.sources[row]
+        self._refresh_default_output()
+
+    def _refresh_default_output(self) -> None:
+        if self.output_edit.text().strip():
+            return
+        if len(self.sources) == 1:
+            stem = self.sources[0].name
+        elif len(self.sources) > 1:
+            stem = "arquivo"
+        else:
+            stem = "novo-arquivo"
+        self.output_edit.setText(str(self.base_dir / f"{stem}.qbx"))
+
+    def _choose_output(self) -> None:
+        value, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar arquivo QBX",
+            self.output_edit.text() or str(self.base_dir / "arquivo.qbx"),
+            "QBX (*.qbx)",
+        )
+        if value:
+            if not value.lower().endswith(".qbx"):
+                value += ".qbx"
+            self.output_edit.setText(value)
+
+    def _profile_changed(self, *_args) -> None:
+        resilient = self.profile_combo.currentData() == "resilient"
+        self.repair_budget.setEnabled(resilient)
+        if resilient:
+            self.theory.setText(
+                "<b>QBX V3 — caminho completo:</b><br>"
+                "1) Content-Defined Chunking divide o conteúdo em blocos reutilizáveis.<br>"
+                "2) SHA-256 identifica blocos e a deduplicação global evita armazenar repetições.<br>"
+                "3) RAW, Zstandard, Deflate e LZMA competem como representações candidatas.<br>"
+                "4) AGRP faz planejamento global sob metas de tamanho/decodificação.<br>"
+                "5) ARK cria relações reversíveis selecionadas sob orçamento real de bytes.<br>"
+                "6) Na leitura, uma reconstrução só é aceita se o SHA-256 original conferir."
+            )
+        else:
+            self.theory.setText(
+                "<b>Modo compatível V2:</b> mantém CDC, SHA-256, deduplicação e os perfis "
+                "de compressão existentes. Se quiser a tecnologia completa AGRP + ARK, "
+                "use <b>Resiliente V3</b>."
+            )
+
+    def _accept_checked(self) -> None:
+        if not self.sources:
+            QMessageBox.warning(self, APP_NAME, "Adicione pelo menos um arquivo ou pasta.")
+            return
+        output = self.output_edit.text().strip()
+        if not output:
+            QMessageBox.warning(self, APP_NAME, "Escolha o arquivo QBX de saída.")
+            return
+        out = Path(output)
+        if out.suffix.lower() != ".qbx":
+            out = out.with_suffix(out.suffix + ".qbx" if out.suffix else ".qbx")
+            self.output_edit.setText(str(out))
+        if any(src.resolve() == out.resolve() for src in self.sources):
+            QMessageBox.warning(self, APP_NAME, "O arquivo de saída não pode ser uma das fontes.")
+            return
+        self.accept()
+
+    def options(self) -> dict:
+        max_size = float(self.size_goal.value())
+        max_decode = float(self.decode_goal.value())
+        return {
+            "sources": list(self.sources),
+            "output": Path(self.output_edit.text()),
+            "profile": str(self.profile_combo.currentData()),
+            "max_size_mb": max_size if max_size > 0 else None,
+            "max_decode_ms": max_decode if max_decode > 0 else None,
+            "repair_budget_pct": float(self.repair_budget.value()),
+            "comment": self.comment_edit.toPlainText(),
+        }
+
+
+class QBXWindow(QMainWindow):
     def __init__(self, initial_archive: str | None = None):
         super().__init__()
-        self._configure_fonts()
-        self._configure_theme()
-        self.title(f"QBX {__version__}")
-        self.geometry("1120x720")
-        self.minsize(900, 580)
+        self.setWindowTitle(f"QBX {__version__}")
+        self.setWindowIcon(app_icon())
+        self.resize(1280, 760)
+        self.setMinimumSize(900, 560)
+        self.setAcceptDrops(True)
 
         self.archive_path: Path | None = None
         self.manifest: dict | None = None
-        self.current_dir = PurePosixPath(".")
-        self.item_paths: dict[str, str] = {}
-        self.status_var = tk.StringVar(value="Pronto")
-        self.address_var = tk.StringVar(value="QBX\\")
-        self._busy = False
+        self.archive_dir = PurePosixPath(".")
+        self.fs_dir = Path.home()
+        self.mode = "filesystem"
         self._temp_views: list[str] = []
+        self._busy = False
+        self.thread_pool = QThreadPool.globalInstance()
         self.config_data = self._load_config()
         self.repair_budget_pct = float(self.config_data.get("repair_budget_pct", 5.0))
 
-        self._build_ui()
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._build_actions()
+        self._build_menus()
+        self._build_toolbar()
+        self._build_central()
+        self._build_status()
+        self.setStyleSheet(DARK_STYLESHEET)
+
         if initial_archive:
-            self.after(150, lambda: self.open_archive(Path(initial_archive)))
+            self.open_archive(Path(initial_archive))
+        else:
+            self.refresh_view()
+
+    # ---------- config ----------
 
     def _load_config(self) -> dict:
         try:
-            value = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            return value if isinstance(value, dict) else {}
+            obj = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            return obj if isinstance(obj, dict) else {}
         except Exception:
             return {}
 
@@ -98,434 +554,602 @@ class QBXApp(tk.Tk):
         except OSError:
             pass
 
-    def _configure_fonts(self) -> None:
-        """Use Windows-native fonts without feeding Tcl an ambiguous font string.
+    # ---------- UI shell ----------
 
-        "Segoe UI 9" is not a safe Tcl font descriptor because Tcl can parse
-        "UI" as the numeric size. Configure named Tk fonts through tkinter.font
-        instead so menus and packaged builds start reliably on Windows.
-        """
-        targets = {
-            "TkDefaultFont": 9,
-            "TkTextFont": 9,
-            "TkMenuFont": 9,
-            "TkHeadingFont": 9,
-            "TkCaptionFont": 9,
-            "TkSmallCaptionFont": 8,
-            "TkIconFont": 9,
-            "TkTooltipFont": 9,
-        }
-        for name, size in targets.items():
-            try:
-                tkfont.nametofont(name).configure(family="Segoe UI", size=size)
-            except tk.TclError:
-                pass
-        try:
-            tkfont.nametofont("TkFixedFont").configure(family="Consolas", size=9)
-        except tk.TclError:
-            pass
+    def _action(self, text: str, icon: str, slot, shortcut: str | None = None) -> QAction:
+        a = QAction(icon_for(icon), text, self)
+        a.triggered.connect(slot)
+        if shortcut:
+            a.setShortcut(shortcut)
+        return a
 
-    def _configure_theme(self) -> None:
-        style = ttk.Style(self)
-        themes = style.theme_names()
-        for preferred in ("vista", "xpnative", "clam"):
-            if preferred in themes:
-                try:
-                    style.theme_use(preferred)
-                    break
-                except tk.TclError:
-                    pass
-        style.configure("Treeview", rowheight=25, font=("Segoe UI", 9))
-        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
-        style.configure("TButton", padding=(8, 5))
+    def _build_actions(self) -> None:
+        self.act_new = self._action("Criar QBX", "new", self.create_new_archive, "Ctrl+N")
+        self.act_open = self._action("Abrir arquivo...", "open", self.choose_archive, "Ctrl+O")
+        self.act_add = self._action("Adicionar", "add", self.add_clicked, "Alt+A")
+        self.act_extract = self._action("Extrair Para", "extract", self.extract_clicked, "Alt+E")
+        self.act_test = self._action("Testar", "test", self.verify_clicked, "Alt+T")
+        self.act_view = self._action("Visualizar", "view", self.view_clicked, "F3")
+        self.act_delete = self._action("Excluir", "delete", self.delete_clicked, "Delete")
+        self.act_find = self._action("Localizar", "find", self.find_clicked, "F4")
+        self.act_wizard = self._action("Assistente", "wizard", self.create_new_archive)
+        self.act_info = self._action("Informações", "info", self.show_info, "Alt+I")
+        self.act_repair = self._action("Reparar", "repair", self.repair_archive)
+        self.act_comment = self._action("Comentários", "comment", self.edit_comment)
+        self.act_close = QAction("Fechar arquivo", self)
+        self.act_close.triggered.connect(self.close_archive)
+        self.act_exit = QAction("Sair", self)
+        self.act_exit.triggered.connect(self.close)
+        self.act_up = self._action("Um nível acima", "up", self.go_up, "Backspace")
 
-    def _build_ui(self) -> None:
-        self._build_menu()
-        self._build_toolbar()
+    def _build_menus(self) -> None:
+        bar = self.menuBar()
 
-        address = tk.Frame(self, bd=1, relief="sunken", bg="#efefef")
-        address.pack(fill="x", padx=3, pady=(2, 0))
-        tk.Button(address, text="Up", width=5, command=self.go_up).pack(side="left", padx=2, pady=2)
-        tk.Label(address, text="Address", bg="#efefef").pack(side="left", padx=(5, 5))
-        ttk.Entry(address, textvariable=self.address_var, state="readonly").pack(
-            side="left", fill="x", expand=True, padx=(0, 4), pady=3
-        )
+        m_file = bar.addMenu("Arquivo")
+        m_file.addAction(self.act_new)
+        m_file.addAction(self.act_open)
+        m_file.addSeparator()
+        m_file.addAction(self.act_close)
+        m_file.addSeparator()
+        m_file.addAction(self.act_exit)
 
-        area = ttk.Frame(self)
-        area.pack(fill="both", expand=True, padx=3, pady=3)
-        columns = ("name", "size", "blocks", "type", "modified", "hash")
-        self.tree = ttk.Treeview(area, columns=columns, show="headings", selectmode="extended")
-        specs = {
-            "name": ("Name", 380, "w"),
-            "size": ("Size", 110, "e"),
-            "blocks": ("Blocks", 70, "e"),
-            "type": ("Type", 120, "w"),
-            "modified": ("Modified", 145, "w"),
-            "hash": ("SHA-256", 170, "w"),
-        }
-        for col, (label, width, anchor) in specs.items():
-            self.tree.heading(col, text=label, command=lambda c=col: self._sort_tree(c, False))
-            self.tree.column(col, width=width, anchor=anchor)
-        self.tree.pack(side="left", fill="both", expand=True)
-        self.tree.bind("<Double-1>", self._double_click)
-        self.tree.bind("<Return>", self._double_click)
-        self.tree.bind("<BackSpace>", lambda _e: self.go_up())
-        scroll = ttk.Scrollbar(area, orient="vertical", command=self.tree.yview)
-        scroll.pack(side="right", fill="y")
-        self.tree.configure(yscrollcommand=scroll.set)
+        m_commands = bar.addMenu("Comandos")
+        for action in (
+            self.act_new,
+            self.act_add,
+            self.act_extract,
+            self.act_test,
+            self.act_view,
+            self.act_delete,
+            self.act_find,
+            self.act_repair,
+            self.act_comment,
+        ):
+            m_commands.addAction(action)
 
-        status = tk.Frame(self, bd=1, relief="sunken")
-        status.pack(fill="x", side="bottom")
-        ttk.Label(status, textvariable=self.status_var, anchor="w").pack(
-            side="left", fill="x", expand=True, padx=5, pady=2
-        )
-        ttk.Label(status, text=f"QBX {__version__} | AGRP + ARK", anchor="e").pack(
-            side="right", padx=5
-        )
+        m_tools = bar.addMenu("Ferramentas")
+        m_tools.addAction(self.act_wizard)
+        m_tools.addAction(self.act_info)
+        tech_action = QAction("Tecnologia QBX: AGRP + ARK", self)
+        tech_action.triggered.connect(self.show_technology)
+        m_tools.addAction(tech_action)
+        hash_action = QAction("Copiar SHA-256 do arquivo QBX", self)
+        hash_action.triggered.connect(self.copy_archive_hash)
+        m_tools.addAction(hash_action)
 
-        self.bind_all("<Control-o>", lambda _e: self.choose_archive())
-        self.bind_all("<Control-n>", lambda _e: self.create_new_archive())
-        self.bind_all("<Control-f>", lambda _e: self.find_entry())
+        self.menu_favorites = bar.addMenu("Favoritos")
+        self._rebuild_favorites_menu()
 
-    def _build_menu(self) -> None:
-        menu = tk.Menu(self)
-        self.config(menu=menu)
+        m_options = bar.addMenu("Opções")
+        budget = QAction("Orçamento ARK...", self)
+        budget.triggered.connect(self.configure_repair_budget)
+        m_options.addAction(budget)
 
-        file_menu = tk.Menu(menu, tearoff=False)
-        file_menu.add_command(label="New archive...", command=self.create_new_archive, accelerator="Ctrl+N")
-        file_menu.add_command(label="Open archive...", command=self.choose_archive, accelerator="Ctrl+O")
-        file_menu.add_separator()
-        file_menu.add_command(label="Close archive", command=self.close_archive)
-        file_menu.add_command(label="Exit", command=self._on_close)
-        menu.add_cascade(label="File", menu=file_menu)
-
-        commands = tk.Menu(menu, tearoff=False)
-        commands.add_command(label="Add files...", command=lambda: self.add_to_archive(False))
-        commands.add_command(label="Add folder...", command=lambda: self.add_to_archive(True))
-        commands.add_command(label="Extract to...", command=self.extract_archive)
-        commands.add_command(label="Test archive", command=self.verify_archive)
-        commands.add_command(label="View file", command=self.view_selected)
-        commands.add_command(label="Delete", command=self.delete_selected)
-        commands.add_separator()
-        commands.add_command(label="Find...", command=self.find_entry, accelerator="Ctrl+F")
-        commands.add_command(label="Repair archive...", command=self.repair_archive)
-        commands.add_command(label="Archive comment...", command=self.edit_comment)
-        menu.add_cascade(label="Commands", menu=commands)
-
-        tools = tk.Menu(menu, tearoff=False)
-        tools.add_command(label="Wizard...", command=self.create_new_archive)
-        tools.add_command(label="Archive information", command=self.show_info)
-        tools.add_command(label="Copy archive SHA-256", command=self.copy_archive_hash)
-        menu.add_cascade(label="Tools", menu=tools)
-
-        self.favorites_menu = tk.Menu(menu, tearoff=False)
-        self.favorites_menu.add_command(label="Add current archive", command=self.add_favorite)
-        self.favorites_menu.add_separator()
-        self._refresh_favorites_menu()
-        menu.add_cascade(label="Favorites", menu=self.favorites_menu)
-
-        options = tk.Menu(menu, tearoff=False)
-        options.add_command(label="ARK repair budget...", command=self.configure_repair_budget)
-        menu.add_cascade(label="Options", menu=options)
-
-        help_menu = tk.Menu(menu, tearoff=False)
-        help_menu.add_command(label="About QBX", command=self.show_about)
-        menu.add_cascade(label="Help", menu=help_menu)
+        m_help = bar.addMenu("Ajuda")
+        about = QAction("Sobre o QBX", self)
+        about.triggered.connect(self.show_about)
+        m_help.addAction(about)
 
     def _build_toolbar(self) -> None:
-        toolbar = tk.Frame(self, bd=1, relief="raised", bg="#f0f0f0")
-        toolbar.pack(fill="x")
-        actions = [
-            ("＋\nAdd", lambda: self.add_to_archive(False), "#0a7f36"),
-            ("⇩\nExtract", self.extract_archive, "#1d4ed8"),
-            ("✓\nTest", self.verify_archive, "#7c3aed"),
-            ("▣\nView", self.view_selected, "#0369a1"),
-            ("×\nDelete", self.delete_selected, "#b91c1c"),
-            ("⌕\nFind", self.find_entry, "#a16207"),
-            ("◆\nWizard", self.create_new_archive, "#6d28d9"),
-            ("i\nInfo", self.show_info, "#334155"),
-            ("↻\nRepair", self.repair_archive, "#be123c"),
-        ]
-        self.toolbar_buttons: list[tk.Button] = []
-        for label, command, color in actions:
-            b = tk.Button(
-                toolbar,
-                text=label,
-                command=command,
-                width=10,
-                height=3,
-                relief="flat",
-                bg="#f0f0f0",
-                fg=color,
-                activebackground="#dbeafe",
-                font=("Segoe UI", 9, "bold"),
-                cursor="hand2",
-            )
-            b.pack(side="left", padx=1, pady=3)
-            self.toolbar_buttons.append(b)
+        tb = QToolBar("Principal", self)
+        tb.setMovable(False)
+        tb.setFloatable(False)
+        tb.setIconSize(QSize(42, 42))
+        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        for action in (
+            self.act_add,
+            self.act_extract,
+            self.act_test,
+            self.act_view,
+            self.act_delete,
+            self.act_find,
+            self.act_wizard,
+            self.act_info,
+            self.act_repair,
+            self.act_comment,
+        ):
+            tb.addAction(action)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb)
 
-    def _set_busy(self, value: bool, message: str | None = None) -> None:
-        self._busy = value
-        for button in self.toolbar_buttons:
-            button.configure(state="disabled" if value else "normal")
-        self.configure(cursor="watch" if value else "")
-        if message:
-            self.status_var.set(message)
+    def _build_central(self) -> None:
+        root = QWidget(self)
+        layout = QVBoxLayout(root)
+        layout.setContentsMargins(4, 4, 4, 0)
+        layout.setSpacing(4)
 
-    def _run(self, message: str, fn, done=None) -> None:
+        row = QWidget(root)
+        row_layout = QVBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(2)
+
+        nav = QWidget(row)
+        from PySide6.QtWidgets import QHBoxLayout
+        nav_layout = QHBoxLayout(nav)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(4)
+
+        up = QPushButton("↑")
+        up.setFixedWidth(42)
+        up.setToolTip("Um nível acima")
+        up.clicked.connect(self.go_up)
+
+        self.address = QLineEdit()
+        self.address.setReadOnly(True)
+
+        nav_layout.addWidget(up)
+        nav_layout.addWidget(self.address, 1)
+
+        self.info_line = QLineEdit()
+        self.info_line.setReadOnly(True)
+
+        row_layout.addWidget(nav)
+        row_layout.addWidget(self.info_line)
+        layout.addWidget(row)
+
+        self.tree = QTreeWidget()
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setRootIsDecorated(False)
+        self.tree.setUniformRowHeights(True)
+        self.tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
+        self.tree.setSortingEnabled(True)
+        self.tree.setColumnCount(7)
+        self.tree.setHeaderLabels(
+            ["Nome", "Tamanho", "Compactado", "Tipo", "Modificado", "SHA-256", "Método"]
+        )
+        self.tree.setColumnWidth(0, 390)
+        self.tree.setColumnWidth(1, 115)
+        self.tree.setColumnWidth(2, 115)
+        self.tree.setColumnWidth(3, 150)
+        self.tree.setColumnWidth(4, 150)
+        self.tree.setColumnWidth(5, 150)
+        self.tree.setColumnWidth(6, 120)
+        self.tree.itemDoubleClicked.connect(self._double_click)
+        self.tree.itemSelectionChanged.connect(self._selection_changed)
+        layout.addWidget(self.tree, 1)
+
+        self.setCentralWidget(root)
+
+    def _build_status(self) -> None:
+        bar = QStatusBar(self)
+        self.setStatusBar(bar)
+        self.status_left = QLabel("Pronto")
+        self.status_right = QLabel(f"QBX {__version__}  |  AGRP + ARK")
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setFixedWidth(150)
+        self.progress.hide()
+        bar.addWidget(self.status_left, 1)
+        bar.addPermanentWidget(self.progress)
+        bar.addPermanentWidget(self.status_right)
+
+    # ---------- async ----------
+
+    def _run(self, label: str, fn, done=None) -> None:
         if self._busy:
             return
-        self._set_busy(True, message)
+        self._busy = True
+        self.status_left.setText(label)
+        self.progress.show()
+        for a in (
+            self.act_add, self.act_extract, self.act_test, self.act_view,
+            self.act_delete, self.act_find, self.act_wizard, self.act_info,
+            self.act_repair, self.act_comment
+        ):
+            a.setEnabled(False)
 
-        def worker():
-            try:
-                result = fn()
-            except Exception as exc:
-                self.after(0, lambda: self._task_error(exc))
-                return
-            self.after(0, lambda: self._task_done(result, done))
+        worker = Worker(fn)
+        worker.signals.done.connect(lambda value: self._task_done(value, done))
+        worker.signals.error.connect(self._task_error)
+        self.thread_pool.start(worker)
 
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _task_error(self, exc: Exception) -> None:
-        self._set_busy(False, "Failed")
-        messagebox.showerror(APP_NAME, str(exc), parent=self)
-
-    def _task_done(self, result, done) -> None:
-        self._set_busy(False, "Ready")
+    def _task_done(self, value, done) -> None:
+        self._busy = False
+        self.progress.hide()
+        for a in (
+            self.act_add, self.act_extract, self.act_test, self.act_view,
+            self.act_delete, self.act_find, self.act_wizard, self.act_info,
+            self.act_repair, self.act_comment
+        ):
+            a.setEnabled(True)
+        self.status_left.setText("Pronto")
         if done:
-            done(result)
+            done(value)
 
-    def choose_archive(self) -> None:
-        value = filedialog.askopenfilename(
-            title="Open QBX archive",
-            filetypes=[("QBX archives", "*.qbx"), ("All files", "*.*")],
-        )
-        if value:
-            self.open_archive(Path(value))
+    def _task_error(self, details: str) -> None:
+        self._task_done(None, None)
+        short = details.strip().splitlines()[-1] if details.strip() else "Erro desconhecido"
+        QMessageBox.critical(self, APP_NAME, f"{short}\n\nDetalhes foram registrados no traceback da execução.")
+        print(details, file=sys.stderr)
 
-    def open_archive(self, path: Path) -> None:
-        def done(manifest: dict) -> None:
-            self.archive_path = path
-            self.manifest = manifest
-            self.current_dir = PurePosixPath(".")
-            self.title(f"{path.name} - QBX {__version__}")
-            self._remember_recent(path)
-            self.refresh_listing()
+    # ---------- file-system / archive navigation ----------
 
-        self._run(f"Opening {path.name}...", lambda: inspect(path), done)
+    def refresh_view(self) -> None:
+        if self.mode == "archive" and self.manifest is not None:
+            self._populate_archive()
+        else:
+            self._populate_filesystem()
 
-    def close_archive(self) -> None:
-        self.archive_path = None
-        self.manifest = None
-        self.current_dir = PurePosixPath(".")
-        self.item_paths.clear()
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        self.address_var.set("QBX\\")
-        self.status_var.set("No archive open")
-        self.title(f"QBX {__version__}")
+    def _populate_filesystem(self) -> None:
+        self.mode = "filesystem"
+        self.tree.clear()
+        self.address.setText(str(self.fs_dir))
+        self.info_line.setText(f"{self.fs_dir}  —  modo gerenciador de arquivos")
+        self.setWindowTitle(f"QBX {__version__}")
 
-    def create_new_archive(self) -> None:
-        source = filedialog.askdirectory(title="Choose folder to archive")
-        if not source:
-            source = filedialog.askopenfilename(title="Choose file to archive")
-        if not source:
-            return
-        output = filedialog.asksaveasfilename(
-            title="Create QBX archive",
-            defaultextension=".qbx",
-            initialfile=Path(source).name + ".qbx",
-            filetypes=[("QBX archives", "*.qbx")],
-        )
-        if not output:
-            return
-        comment = simpledialog.askstring("Archive comment", "Optional comment:", parent=self) or ""
+        if self.fs_dir.parent != self.fs_dir:
+            item = QTreeWidgetItem(["..", "", "", "Pasta", "", "", ""])
+            item.setIcon(0, icon_for("up", 22))
+            item.setData(0, ROLE_PATH, str(self.fs_dir.parent))
+            item.setData(0, ROLE_KIND, "fs-dir")
+            self.tree.addTopLevelItem(item)
 
-        def done(result: dict) -> None:
-            self.status_var.set(
-                f"Created {human_bytes(result.get('archive', 0))} | "
-                f"ARK edges {result.get('repair_edges', 0)}"
+        try:
+            entries = sorted(
+                self.fs_dir.iterdir(),
+                key=lambda p: (not p.is_dir(), p.name.casefold()),
             )
-            self.open_archive(Path(output))
+        except OSError as exc:
+            QMessageBox.warning(self, APP_NAME, str(exc))
+            entries = []
 
-        self._run(
-            "Creating resilient QBX V3 archive...",
-            lambda: pack(
-                source,
-                output,
-                profile="resilient",
-                repair_budget_pct=self.repair_budget_pct,
-                comment=comment,
-            ),
-            done,
-        )
-
-    def refresh_archive(self) -> None:
-        if self.archive_path:
-            self.open_archive(self.archive_path)
-
-    def refresh_listing(self) -> None:
-        if not self.manifest:
-            return
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        self.item_paths.clear()
-
-        prefix = "" if str(self.current_dir) == "." else self.current_dir.as_posix().rstrip("/") + "/"
-        child_dirs: set[str] = set()
-        for directory in self.manifest.get("directories", []):
-            if not directory.startswith(prefix):
+        for p in entries:
+            try:
+                st = p.stat()
+            except OSError:
                 continue
-            rest = directory[len(prefix):]
-            if rest and "/" not in rest:
-                child_dirs.add(rest)
-        for entry in self.manifest.get("files", []):
-            path = entry["path"]
+            is_dir = p.is_dir()
+            size = "" if is_dir else human_bytes(st.st_size)
+            kind = "Pasta de arquivos" if is_dir else (p.suffix.upper().lstrip(".") + " File" if p.suffix else "Arquivo")
+            modified = __import__("time").strftime("%d/%m/%Y %H:%M", __import__("time").localtime(st.st_mtime))
+            item = QTreeWidgetItem([p.name, size, "", kind, modified, "", ""])
+            item.setIcon(0, icon_for("folder" if is_dir else ("archive" if p.suffix.lower() == ".qbx" else "file"), 22))
+            item.setData(0, ROLE_PATH, str(p))
+            item.setData(0, ROLE_KIND, "fs-dir" if is_dir else "fs-file")
+            self.tree.addTopLevelItem(item)
+
+        self.status_left.setText(f"{len(entries)} item(ns)")
+
+    def _populate_archive(self) -> None:
+        assert self.manifest is not None and self.archive_path is not None
+        self.tree.clear()
+        prefix = "" if str(self.archive_dir) == "." else self.archive_dir.as_posix().rstrip("/") + "/"
+        display_prefix = prefix.replace("/", "\\")
+        self.address.setText(f"{self.archive_path}  \\  {display_prefix}")
+        stats = self.manifest.get("statistics", {})
+        original = stats.get("input_bytes", 0)
+        self.info_line.setText(
+            f"{self.archive_path.name} — Arquivo QBX V{self.manifest.get('version', '?')}, "
+            f"tamanho original {human_bytes(original)}, "
+            f"{stats.get('repair_edges', 0)} relação(ões) ARK"
+        )
+        self.setWindowTitle(f"{self.archive_path.name} - QBX {__version__}")
+
+        if str(self.archive_dir) != ".":
+            item = QTreeWidgetItem(["..", "", "", "Pasta", "", "", ""])
+            item.setIcon(0, icon_for("up", 22))
+            item.setData(0, ROLE_PATH, str(self.archive_dir.parent))
+            item.setData(0, ROLE_KIND, "archive-dir")
+            self.tree.addTopLevelItem(item)
+
+        child_dirs: set[str] = set()
+        for d in self.manifest.get("directories", []):
+            if d.startswith(prefix):
+                rest = d[len(prefix):]
+                if rest and "/" not in rest:
+                    child_dirs.add(rest)
+        for e in self.manifest.get("files", []):
+            path = e["path"]
+            if path.startswith(prefix):
+                rest = path[len(prefix):]
+                if "/" in rest:
+                    child_dirs.add(rest.split("/", 1)[0])
+
+        for name in sorted(child_dirs, key=str.casefold):
+            full = prefix + name
+            item = QTreeWidgetItem([name, "", "", "Pasta de arquivos", "", "", ""])
+            item.setIcon(0, icon_for("folder", 22))
+            item.setData(0, ROLE_PATH, full)
+            item.setData(0, ROLE_KIND, "archive-dir")
+            self.tree.addTopLevelItem(item)
+
+        visible_files = []
+        for e in self.manifest.get("files", []):
+            path = e["path"]
             if not path.startswith(prefix):
                 continue
             rest = path[len(prefix):]
             if "/" in rest:
-                child_dirs.add(rest.split("/", 1)[0])
-
-        for name in sorted(child_dirs, key=str.casefold):
-            full = prefix + name
-            iid = self.tree.insert("", "end", values=(name, "", "", "Folder", "", ""))
-            self.item_paths[iid] = full
-
-        files = []
-        for entry in self.manifest.get("files", []):
-            path = entry["path"]
-            if not path.startswith(prefix):
                 continue
-            rest = path[len(prefix):]
-            if "/" not in rest:
-                files.append((rest, entry))
-        for name, entry in sorted(files, key=lambda x: x[0].casefold()):
+            visible_files.append((rest, e))
+
+        for name, e in sorted(visible_files, key=lambda x: x[0].casefold()):
             modified = ""
-            if isinstance(entry.get("mtime_ns"), int):
+            if isinstance(e.get("mtime_ns"), int):
                 try:
-                    modified = time.strftime("%Y-%m-%d %H:%M", time.localtime(entry["mtime_ns"] / 1e9))
+                    import time
+                    modified = time.strftime("%d/%m/%Y %H:%M", time.localtime(e["mtime_ns"] / 1e9))
                 except Exception:
                     pass
-            iid = self.tree.insert(
-                "",
-                "end",
-                values=(
-                    name,
-                    human_bytes(entry["size"]),
-                    len(entry.get("blocks", [])),
-                    Path(name).suffix.lstrip(".").upper() or "File",
-                    modified,
-                    entry.get("sha256", "")[:16],
-                ),
-            )
-            self.item_paths[iid] = entry["path"]
+            method = self.manifest.get("compression_profile", "QBX")
+            item = QTreeWidgetItem([
+                name,
+                human_bytes(e.get("size")),
+                "—",
+                Path(name).suffix.upper().lstrip(".") or "Arquivo",
+                modified,
+                e.get("sha256", "")[:16].upper(),
+                method,
+            ])
+            item.setIcon(0, icon_for("file", 22))
+            item.setData(0, ROLE_PATH, e["path"])
+            item.setData(0, ROLE_KIND, "archive-file")
+            self.tree.addTopLevelItem(item)
 
-        display = prefix.replace("/", "\\")
-        self.address_var.set(f"{self.archive_path or 'QBX'}\\{display}")
-        stats = self.manifest.get("statistics", {})
-        self.status_var.set(
-            f"{len(self.manifest.get('files', []))} files | "
-            f"{stats.get('unique_blocks', 0)} unique blocks | "
-            f"{stats.get('repair_edges', 0)} ARK relations | "
-            f"format V{self.manifest.get('version', '?')}"
+        total = len(self.manifest.get("files", []))
+        self.status_left.setText(
+            f"Total {len(child_dirs)} pasta(s) e {total} arquivo(s), "
+            f"{human_bytes(original)}"
         )
 
-    def _double_click(self, _event=None) -> None:
-        selection = self.tree.selection()
-        if not selection:
-            return
-        iid = selection[0]
-        path = self.item_paths.get(iid)
+    def _double_click(self, item: QTreeWidgetItem, _column: int) -> None:
+        kind = item.data(0, ROLE_KIND)
+        path = item.data(0, ROLE_PATH)
         if not path:
             return
-        if self.tree.set(iid, "type") == "Folder":
-            self.current_dir = PurePosixPath(path)
-            self.refresh_listing()
-        else:
-            self.view_selected()
+        if kind == "fs-dir":
+            self.fs_dir = Path(path)
+            self.refresh_view()
+        elif kind == "fs-file":
+            p = Path(path)
+            if p.suffix.lower() == ".qbx":
+                self.open_archive(p)
+            else:
+                open_with_system(p)
+        elif kind == "archive-dir":
+            self.archive_dir = PurePosixPath(path)
+            if str(self.archive_dir) == "":
+                self.archive_dir = PurePosixPath(".")
+            self.refresh_view()
+        elif kind == "archive-file":
+            self.view_clicked()
 
     def go_up(self) -> None:
-        if str(self.current_dir) == ".":
+        if self.mode == "archive":
+            if str(self.archive_dir) == ".":
+                self.close_archive()
+            else:
+                parent = self.archive_dir.parent
+                self.archive_dir = PurePosixPath(".") if str(parent) in ("", ".") else parent
+                self.refresh_view()
+        else:
+            if self.fs_dir.parent != self.fs_dir:
+                self.fs_dir = self.fs_dir.parent
+                self.refresh_view()
+
+    def _selected(self) -> list[tuple[str, str]]:
+        result = []
+        for item in self.tree.selectedItems():
+            path = item.data(0, ROLE_PATH)
+            kind = item.data(0, ROLE_KIND)
+            if path and kind:
+                result.append((str(path), str(kind)))
+        return result
+
+    def _selection_changed(self) -> None:
+        selected = self._selected()
+        if not selected:
             return
-        parent = self.current_dir.parent
-        self.current_dir = PurePosixPath(".") if str(parent) == "." else parent
-        self.refresh_listing()
+        if self.mode == "filesystem":
+            total = 0
+            count = 0
+            for p, kind in selected:
+                if kind == "fs-file":
+                    try:
+                        total += Path(p).stat().st_size
+                        count += 1
+                    except OSError:
+                        pass
+            if count:
+                self.status_left.setText(f"Selecionado {count} arquivo(s), {human_bytes(total)}")
+        else:
+            self.status_left.setText(f"Selecionado {len(selected)} item(ns)")
 
-    def _selected_paths(self) -> list[str]:
-        return [self.item_paths[i] for i in self.tree.selection() if i in self.item_paths]
+    # ---------- archive lifecycle ----------
 
-    def add_to_archive(self, folder: bool = False) -> None:
-        if not self.archive_path:
+    def choose_archive(self) -> None:
+        value, _ = QFileDialog.getOpenFileName(self, "Abrir arquivo QBX", str(self.fs_dir), "QBX (*.qbx);;Todos os arquivos (*)")
+        if value:
+            self.open_archive(Path(value))
+
+    def open_archive(self, path: Path) -> None:
+        path = path.resolve()
+
+        def done(manifest: dict) -> None:
+            self.archive_path = path
+            self.manifest = manifest
+            self.archive_dir = PurePosixPath(".")
+            self.mode = "archive"
+            self._remember_recent(path)
+            self.refresh_view()
+
+        self._run(f"Abrindo {path.name}...", lambda: inspect(path), done)
+
+    def close_archive(self) -> None:
+        if self.archive_path:
+            self.fs_dir = self.archive_path.parent
+        self.archive_path = None
+        self.manifest = None
+        self.archive_dir = PurePosixPath(".")
+        self.mode = "filesystem"
+        self.refresh_view()
+
+    def _stage_and_pack(self, options: dict) -> dict:
+        sources: list[Path] = options["sources"]
+        output: Path = options["output"]
+        kwargs = {
+            "profile": options["profile"],
+            "max_size_mb": options["max_size_mb"],
+            "max_decode_ms": options["max_decode_ms"],
+            "repair_budget_pct": options["repair_budget_pct"],
+            "comment": options["comment"],
+        }
+
+        if len(sources) == 1:
+            return pack(sources[0], output, **kwargs)
+
+        with tempfile.TemporaryDirectory(prefix="qbx-stage-") as td:
+            stage = Path(td) / "content"
+            stage.mkdir()
+            for src in sources:
+                target = stage / src.name
+                if src.is_dir():
+                    shutil.copytree(src, target, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, target)
+            return pack(stage, output, **kwargs)
+
+    def create_new_archive(self) -> None:
+        selected = [
+            Path(p)
+            for p, kind in self._selected()
+            if self.mode == "filesystem"
+            and kind in {"fs-file", "fs-dir"}
+            and Path(p).name != ".."
+        ]
+
+        dialog = CreateArchiveDialog(
+            self,
+            initial_sources=selected,
+            base_dir=self.fs_dir,
+            default_repair_budget=self.repair_budget_pct,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        options = dialog.options()
+        self.repair_budget_pct = float(options["repair_budget_pct"])
+        self.config_data["repair_budget_pct"] = self.repair_budget_pct
+        self._save_config()
+        out: Path = options["output"]
+
+        profile_label = (
+            "AGRP + ARK"
+            if options["profile"] == "resilient"
+            else options["profile"].upper()
+        )
+        self._run(
+            f"Criando QBX com {profile_label}...",
+            lambda: self._stage_and_pack(options),
+            lambda result: self._archive_created(out, result),
+        )
+
+    def _archive_created(self, out: Path, result: dict) -> None:
+        QMessageBox.information(
+            self,
+            "Arquivo QBX criado",
+            f"Arquivo criado com sucesso.\n\n"
+            f"Saída: {out.name}\n"
+            f"Tamanho original: {human_bytes(result.get('original', 0))}\n"
+            f"Tamanho QBX: {human_bytes(result.get('archive', 0))}\n"
+            f"Perfil: {result.get('profile', '')}\n"
+            f"Planner: {result.get('planner', 'legacy')}\n"
+            f"Relações ARK: {result.get('repair_edges', 0)}\n"
+            f"SHA-256: {result.get('archive_sha256', '')[:24]}...",
+        )
+        self.open_archive(out)
+
+    # ---------- toolbar commands ----------
+
+    def add_clicked(self) -> None:
+        if self.mode == "filesystem":
             self.create_new_archive()
             return
-        if folder:
-            value = filedialog.askdirectory(title="Add folder")
-            sources = [value] if value else []
-        else:
-            sources = list(filedialog.askopenfilenames(title="Add files"))
+        if not self.archive_path:
+            return
+        files, _ = QFileDialog.getOpenFileNames(self, "Adicionar arquivos", str(self.fs_dir), "Todos os arquivos (*)")
+        sources = [Path(p) for p in files]
+        if not sources:
+            folder = QFileDialog.getExistingDirectory(self, "Adicionar pasta", str(self.fs_dir))
+            if folder:
+                sources = [Path(folder)]
         if not sources:
             return
         self._run(
-            "Adding and rebuilding archive...",
+            "Adicionando e reconstruindo o arquivo...",
             lambda: add_sources(
                 self.archive_path,
-                sources,
+                [str(x) for x in sources],
                 overwrite_entries=True,
                 repair_budget_pct=self.repair_budget_pct,
             ),
-            lambda _r: self.refresh_archive(),
+            lambda _r: self.open_archive(self.archive_path),
         )
 
-    def extract_archive(self) -> None:
-        if not self.archive_path:
+    def extract_clicked(self) -> None:
+        archive = self.archive_path
+        if self.mode == "filesystem":
+            selected = [Path(p) for p, kind in self._selected() if kind == "fs-file" and Path(p).suffix.lower() == ".qbx"]
+            if len(selected) != 1:
+                QMessageBox.information(self, APP_NAME, "Selecione um arquivo .qbx para extrair.")
+                return
+            archive = selected[0]
+        if archive is None:
             return
-        destination = filedialog.askdirectory(title="Extract to")
-        if not destination:
+        dest = QFileDialog.getExistingDirectory(self, "Extrair para", str(archive.parent))
+        if not dest:
             return
 
         def done(result: dict) -> None:
-            messagebox.showinfo(
+            QMessageBox.information(
+                self,
                 APP_NAME,
-                f"Extraction complete.\n\nFiles: {result.get('files', 0)}\n"
-                f"Data: {human_bytes(result.get('bytes', 0))}\n"
-                f"Recovered blocks: {result.get('recovered_blocks', 0)}",
-                parent=self,
+                f"Extração concluída.\n\n"
+                f"Arquivos: {result.get('files', 0)}\n"
+                f"Dados: {human_bytes(result.get('bytes', 0))}\n"
+                f"Blocos recuperados: {result.get('recovered_blocks', 0)}",
             )
 
-        self._run("Extracting and verifying...", lambda: unpack(self.archive_path, destination), done)
+        self._run("Extraindo e verificando...", lambda: unpack(archive, dest), done)
 
-    def verify_archive(self) -> None:
-        if not self.archive_path:
+    def verify_clicked(self) -> None:
+        archive = self.archive_path
+        if self.mode == "filesystem":
+            selected = [Path(p) for p, kind in self._selected() if kind == "fs-file" and Path(p).suffix.lower() == ".qbx"]
+            if len(selected) == 1:
+                archive = selected[0]
+        if archive is None:
+            QMessageBox.information(self, APP_NAME, "Abra ou selecione um arquivo QBX.")
             return
 
         def done(result: dict) -> None:
-            state = "HEALTHY"
+            state = "SAUDÁVEL"
             if result.get("degraded"):
-                state = "DEGRADED BUT RECOVERABLE"
-            messagebox.showinfo(
-                APP_NAME,
-                f"Archive test: {state}\n\n"
-                f"Files: {result.get('files', 0)}\n"
-                f"Blocks: {result.get('blocks', 0)}\n"
-                f"Recovered blocks: {result.get('recovered_blocks', 0)}\n"
-                f"Damaged records: {result.get('damaged_records', 0)}",
-                parent=self,
+                state = "DEGRADADO, MAS RECUPERÁVEL"
+            QMessageBox.information(
+                self,
+                "Teste do arquivo",
+                f"Estado: {state}\n\n"
+                f"Arquivos: {result.get('files', 0)}\n"
+                f"Blocos: {result.get('blocks', 0)}\n"
+                f"Blocos recuperados: {result.get('recovered_blocks', 0)}\n"
+                f"Registros danificados: {result.get('damaged_records', 0)}",
             )
 
-        self._run("Testing integrity and ARK recovery paths...", lambda: verify(self.archive_path), done)
+        self._run("Testando integridade e caminhos ARK...", lambda: verify(archive), done)
 
-    def view_selected(self) -> None:
-        if not self.archive_path:
-            return
-        selected = self._selected_paths()
+    def view_clicked(self) -> None:
+        selected = self._selected()
         if len(selected) != 1:
-            messagebox.showwarning(APP_NAME, "Select exactly one file.", parent=self)
+            QMessageBox.information(self, APP_NAME, "Selecione exatamente um arquivo.")
             return
-        rel = selected[0]
-        if not any(e["path"] == rel for e in (self.manifest or {}).get("files", [])):
+        path, kind = selected[0]
+        if kind == "fs-file":
+            open_with_system(Path(path))
             return
+        if kind != "archive-file" or not self.archive_path:
+            return
+
+        rel = path
 
         def work():
             td = tempfile.mkdtemp(prefix="qbx-view-")
@@ -533,115 +1157,126 @@ class QBXApp(tk.Tk):
             unpack(self.archive_path, td)
             return Path(td).joinpath(*PurePosixPath(rel).parts)
 
-        def done(path: Path) -> None:
-            if os.name == "nt":
-                os.startfile(str(path))  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(path)])
-            else:
-                subprocess.Popen(["xdg-open", str(path)])
+        self._run("Preparando visualização...", work, open_with_system)
 
-        self._run("Preparing preview...", work, done)
-
-    def delete_selected(self) -> None:
-        if not self.archive_path:
+    def delete_clicked(self) -> None:
+        if self.mode != "archive" or not self.archive_path:
+            QMessageBox.information(self, APP_NAME, "A exclusão direta do sistema de arquivos não é realizada pelo QBX.")
             return
-        paths = self._selected_paths()
-        if not paths or not messagebox.askyesno(APP_NAME, f"Delete {len(paths)} item(s)?", parent=self):
+        paths = [p for p, kind in self._selected() if kind in {"archive-file", "archive-dir"} and p != ".."]
+        if not paths:
+            return
+        if QMessageBox.question(self, APP_NAME, f"Excluir {len(paths)} item(ns) do arquivo?") != QMessageBox.StandardButton.Yes:
             return
         self._run(
-            "Deleting and rebuilding archive...",
+            "Excluindo e reconstruindo o arquivo...",
             lambda: delete_entries(self.archive_path, paths, repair_budget_pct=self.repair_budget_pct),
-            lambda _r: self.refresh_archive(),
+            lambda _r: self.open_archive(self.archive_path),
         )
 
-    def find_entry(self) -> None:
-        if not self.manifest:
+    def find_clicked(self) -> None:
+        term, ok = QInputDialog.getText(self, "Localizar", "Nome ou caminho contém:")
+        if not ok or not term:
             return
-        term = simpledialog.askstring("Find", "Name or path contains:", parent=self)
-        if not term:
-            return
-        match = next(
-            (e for e in self.manifest.get("files", []) if term.casefold() in e["path"].casefold()),
-            None,
-        )
-        if not match:
-            messagebox.showinfo(APP_NAME, "No match found.", parent=self)
-            return
-        parent = PurePosixPath(match["path"]).parent
-        self.current_dir = PurePosixPath(".") if str(parent) == "." else parent
-        self.refresh_listing()
-        target = PurePosixPath(match["path"]).name
-        for iid in self.tree.get_children():
-            if self.tree.set(iid, "name") == target:
-                self.tree.selection_set(iid)
-                self.tree.focus(iid)
-                self.tree.see(iid)
-                break
+        needle = term.casefold()
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            if needle in item.text(0).casefold():
+                self.tree.setCurrentItem(item)
+                self.tree.scrollToItem(item)
+                return
+        if self.mode == "archive" and self.manifest:
+            match = next((e for e in self.manifest.get("files", []) if needle in e["path"].casefold()), None)
+            if match:
+                parent = PurePosixPath(match["path"]).parent
+                self.archive_dir = PurePosixPath(".") if str(parent) == "." else parent
+                self.refresh_view()
+                for i in range(self.tree.topLevelItemCount()):
+                    item = self.tree.topLevelItem(i)
+                    if item.text(0) == PurePosixPath(match["path"]).name:
+                        self.tree.setCurrentItem(item)
+                        self.tree.scrollToItem(item)
+                        return
+        QMessageBox.information(self, APP_NAME, "Nenhum resultado encontrado.")
 
     def repair_archive(self) -> None:
         if not self.archive_path:
+            QMessageBox.information(self, APP_NAME, "Abra um arquivo QBX primeiro.")
             return
-        output = filedialog.asksaveasfilename(
-            title="Save repaired QBX archive",
-            defaultextension=".qbx",
-            initialfile=self.archive_path.stem + "-repaired.qbx",
-            filetypes=[("QBX archives", "*.qbx")],
+        output, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar arquivo reparado",
+            str(self.archive_path.with_name(self.archive_path.stem + "-reparado.qbx")),
+            "QBX (*.qbx)",
         )
         if not output:
             return
+        out = Path(output)
 
         def done(result: dict) -> None:
-            messagebox.showinfo(
+            QMessageBox.information(
+                self,
                 APP_NAME,
-                f"Repair complete.\nRecovered blocks: {result.get('recovered_blocks', 0)}\n"
-                f"SHA-256: {result.get('archive_sha256', '')}",
-                parent=self,
+                f"Reparo concluído.\n\nBlocos recuperados: {result.get('recovered_blocks', 0)}",
             )
-            self.open_archive(Path(output))
+            self.open_archive(out)
 
         self._run(
-            "Rebuilding clean archive through ARK...",
-            lambda: repair(self.archive_path, output, repair_budget_pct=self.repair_budget_pct),
+            "Reconstruindo arquivo limpo com ARK...",
+            lambda: repair(self.archive_path, out, repair_budget_pct=self.repair_budget_pct),
             done,
         )
 
     def edit_comment(self) -> None:
         if not self.archive_path or not self.manifest:
             return
-        value = simpledialog.askstring(
-            "Archive comment",
-            "Comment:",
-            initialvalue=str(self.manifest.get("comment", "")),
-            parent=self,
+        value, ok = QInputDialog.getMultiLineText(
+            self,
+            "Comentários",
+            "Comentário do arquivo:",
+            str(self.manifest.get("comment", "")),
         )
-        if value is None:
+        if not ok:
             return
         self._run(
-            "Updating archive comment...",
+            "Atualizando comentário...",
             lambda: set_comment(self.archive_path, value, repair_budget_pct=self.repair_budget_pct),
-            lambda _r: self.refresh_archive(),
+            lambda _r: self.open_archive(self.archive_path),
         )
 
     def show_info(self) -> None:
+        if self.mode == "filesystem":
+            selected = self._selected()
+            if len(selected) == 1:
+                p = Path(selected[0][0])
+                try:
+                    st = p.stat()
+                    QMessageBox.information(
+                        self,
+                        "Informações",
+                        f"Nome: {p.name}\nCaminho: {p}\nTipo: {'Pasta' if p.is_dir() else 'Arquivo'}\n"
+                        f"Tamanho: {human_bytes(st.st_size) if p.is_file() else '—'}",
+                    )
+                except OSError as exc:
+                    QMessageBox.warning(self, APP_NAME, str(exc))
+            return
         if not self.archive_path or not self.manifest:
             return
         stats = self.manifest.get("statistics", {})
         planner = self.manifest.get("planner", {})
-        messagebox.showinfo(
-            "QBX archive information",
-            f"Archive: {self.archive_path}\n"
-            f"Product: {self.manifest.get('product_version', __version__)}\n"
-            f"Format: V{self.manifest.get('version')}\n"
-            f"Profile: {self.manifest.get('compression_profile')}\n"
-            f"Files: {stats.get('file_count', 0)}\n"
-            f"Input: {human_bytes(stats.get('input_bytes', 0))}\n"
-            f"Unique blocks: {stats.get('unique_blocks', 0)}\n"
-            f"ARK relations: {stats.get('repair_edges', 0)}\n"
-            f"Repair payload: {human_bytes(stats.get('repair_payload_bytes', 0))}\n"
+        QMessageBox.information(
+            self,
+            "Informações do arquivo QBX",
+            f"Arquivo: {self.archive_path.name}\n"
+            f"Formato: QBX V{self.manifest.get('version', '?')}\n"
+            f"Produto: {self.manifest.get('product_version', __version__)}\n"
+            f"Perfil: {self.manifest.get('compression_profile', '')}\n"
+            f"Arquivos: {stats.get('file_count', 0)}\n"
+            f"Tamanho original: {human_bytes(stats.get('input_bytes', 0))}\n"
+            f"Blocos únicos: {stats.get('unique_blocks', 0)}\n"
+            f"Relações ARK: {stats.get('repair_edges', 0)}\n"
             f"Planner: {planner.get('name', 'legacy')}\n"
-            f"Comment: {self.manifest.get('comment', '') or '(none)'}",
-            parent=self,
+            f"Comentário: {self.manifest.get('comment', '') or '(nenhum)'}",
         )
 
     def copy_archive_hash(self) -> None:
@@ -656,16 +1291,34 @@ class QBXApp(tk.Tk):
             return h.hexdigest()
 
         def done(value: str) -> None:
-            self.clipboard_clear()
-            self.clipboard_append(value)
-            self.status_var.set("Archive SHA-256 copied")
+            QApplication.clipboard().setText(value)
+            self.status_left.setText("SHA-256 copiado")
 
-        self._run("Calculating SHA-256...", work, done)
+        self._run("Calculando SHA-256...", work, done)
+
+    # ---------- favorites/options/help ----------
 
     def _remember_recent(self, path: Path) -> None:
         recent = [str(path)] + [x for x in self.config_data.get("recent", []) if x != str(path)]
-        self.config_data["recent"] = recent[:10]
+        self.config_data["recent"] = recent[:12]
         self._save_config()
+
+    def _rebuild_favorites_menu(self) -> None:
+        self.menu_favorites.clear()
+        add = QAction("Adicionar arquivo atual aos favoritos", self)
+        add.triggered.connect(self.add_favorite)
+        self.menu_favorites.addAction(add)
+        self.menu_favorites.addSeparator()
+        favorites = self.config_data.get("favorites", [])
+        if not favorites:
+            empty = QAction("(nenhum favorito)", self)
+            empty.setEnabled(False)
+            self.menu_favorites.addAction(empty)
+            return
+        for value in favorites:
+            action = QAction(Path(value).name, self)
+            action.triggered.connect(lambda _checked=False, p=value: self.open_archive(Path(p)))
+            self.menu_favorites.addAction(action)
 
     def add_favorite(self) -> None:
         if not self.archive_path:
@@ -676,72 +1329,95 @@ class QBXApp(tk.Tk):
             favorites.append(value)
             self.config_data["favorites"] = favorites
             self._save_config()
-            self._refresh_favorites_menu()
-
-    def _refresh_favorites_menu(self) -> None:
-        try:
-            self.favorites_menu.delete(2, "end")
-        except tk.TclError:
-            pass
-        favorites = self.config_data.get("favorites", []) if hasattr(self, "config_data") else []
-        if not favorites:
-            self.favorites_menu.add_command(label="(none)", state="disabled")
-            return
-        for value in favorites:
-            self.favorites_menu.add_command(
-                label=Path(value).name,
-                command=lambda p=value: self.open_archive(Path(p)),
-            )
+            self._rebuild_favorites_menu()
 
     def configure_repair_budget(self) -> None:
-        value = simpledialog.askfloat(
-            "ARK repair budget",
-            "Maximum repair payload as percent of primary payload (0-100):",
-            initialvalue=self.repair_budget_pct,
-            minvalue=0.0,
-            maxvalue=100.0,
-            parent=self,
+        value, ok = QInputDialog.getDouble(
+            self,
+            "Orçamento ARK",
+            "Percentual máximo do payload primário reservado para reparo:",
+            self.repair_budget_pct,
+            0.0,
+            100.0,
+            2,
         )
-        if value is not None:
+        if ok:
             self.repair_budget_pct = float(value)
             self.config_data["repair_budget_pct"] = self.repair_budget_pct
             self._save_config()
 
-    def _sort_tree(self, column: str, reverse: bool) -> None:
-        rows = [(self.tree.set(i, column), i) for i in self.tree.get_children("")]
-        rows.sort(key=lambda pair: pair[0].casefold(), reverse=reverse)
-        for index, (_value, iid) in enumerate(rows):
-            self.tree.move(iid, "", index)
-        self.tree.heading(column, command=lambda: self._sort_tree(column, not reverse))
-
-    def show_about(self) -> None:
-        messagebox.showinfo(
-            "About QBX",
-            f"QBX {__version__}\n\n"
-            "Adaptive archive manager for Windows.\n"
-            "V3 combines content-defined chunking, SHA-256 deduplication, AGRP global planning and ARK recoverability.\n\n"
-            "The classic archive-manager UI uses original QBX branding and does not copy WinRAR proprietary assets.",
-            parent=self,
+    def show_technology(self) -> None:
+        QMessageBox.information(
+            self,
+            "Tecnologia QBX 3.1",
+            "QBX 3.1 integra as camadas criadas no projeto:\n\n"
+            "• CDC — divide conteúdo em blocos por padrões dos próprios dados.\n"
+            "• SHA-256 — dá identidade verificável a cada bloco e arquivo.\n"
+            "• Deduplicação global — blocos repetidos são armazenados uma única vez.\n"
+            "• Multi-codec — RAW, Zstandard, Deflate e LZMA são medidos por bloco.\n"
+            "• Pareto — elimina representações claramente inferiores.\n"
+            "• AGRP — escolhe o plano global conforme tamanho e custo de leitura.\n"
+            "• ARK — seleciona relações reversíveis entre blocos sob orçamento real de bytes.\n"
+            "• Recuperação autenticada — um bloco reconstruído só é aceito se o SHA-256 conferir.\n\n"
+            "Na interface, use Criar QBX e escolha Resiliente V3 para ativar o caminho completo."
         )
 
-    def _on_close(self) -> None:
+    def show_about(self) -> None:
+        QMessageBox.information(
+            self,
+            "Sobre o QBX",
+            f"QBX {__version__}\n\n"
+            "Gerenciador de arquivos e formato adaptativo resiliente.\n"
+            "AGRP: planejamento global de representações.\n"
+            "ARK: relações reversíveis para recuperação de blocos.\n\n"
+            "A interface segue o fluxo clássico de gerenciadores de arquivos compactados, "
+            "com identidade e ícones próprios do QBX.",
+        )
+
+    # ---------- drag/drop ----------
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        paths = [Path(u.toLocalFile()) for u in event.mimeData().urls() if u.isLocalFile()]
+        if not paths:
+            return
+        if len(paths) == 1 and paths[0].suffix.lower() == ".qbx":
+            self.open_archive(paths[0])
+            event.acceptProposedAction()
+            return
+        if self.mode == "archive" and self.archive_path:
+            self._run(
+                "Adicionando itens arrastados...",
+                lambda: add_sources(
+                    self.archive_path,
+                    [str(p) for p in paths],
+                    overwrite_entries=True,
+                    repair_budget_pct=self.repair_budget_pct,
+                ),
+                lambda _r: self.open_archive(self.archive_path),
+            )
+        event.acceptProposedAction()
+
+    def closeEvent(self, event):
         for td in self._temp_views:
             shutil.rmtree(td, ignore_errors=True)
-        self.destroy()
+        event.accept()
 
 
 def ui_smoke_test() -> int:
-    """Create and destroy the real GUI to catch packaged Tk startup failures."""
     try:
-        app = QBXApp()
-        app.withdraw()
-        app.update_idletasks()
-        app.update()
-        app.destroy()
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        app = QApplication.instance() or QApplication(["qbx-ui-smoke"])
+        window = QBXWindow()
+        window.show()
+        app.processEvents()
+        window.close()
+        app.processEvents()
         return 0
     except Exception:
-        import traceback
-
         traceback.print_exc()
         return 1
 
@@ -773,13 +1449,14 @@ def main() -> int:
         i = sys.argv.index("--create")
         return 2 if i + 1 >= len(sys.argv) else _create_from_shell(sys.argv[i + 1])
 
-    initial = next(
-        (a for a in sys.argv[1:] if not a.startswith("-") and a.lower().endswith(".qbx")),
-        None,
-    )
-    app = QBXApp(initial_archive=initial)
-    app.mainloop()
-    return 0
+    app = QApplication(sys.argv)
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(__version__)
+    app.setWindowIcon(app_icon())
+    initial = next((a for a in sys.argv[1:] if not a.startswith("-") and a.lower().endswith(".qbx")), None)
+    window = QBXWindow(initial_archive=initial)
+    window.show()
+    return app.exec()
 
 
 if __name__ == "__main__":

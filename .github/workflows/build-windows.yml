@@ -137,11 +137,27 @@ jobs:
             artifacts/v3_2_bridge.json
           if-no-files-found: error
 
-      - name: Publicar GitHub Release quando a main estiver validada
+      - name: Verificar autorização para publicar GitHub Release
         if: github.ref == 'refs/heads/main'
+        id: release_auth
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_TOKEN)) {
+            "ready=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "RELEASE_TOKEN não está configurado. O instalador continua disponível no artefato desta execução."
+            Write-Host "Para publicar Releases automaticamente, configure uma credencial com permissões Contents: write e Workflows: write."
+          } else {
+            "ready=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "Credencial de Release encontrada."
+          }
+
+      - name: Publicar GitHub Release quando a main estiver validada
+        if: github.ref == 'refs/heads/main' && steps.release_auth.outputs.ready == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           $tag = "v$env:QBX_VERSION"
           gh release view $tag 2>$null

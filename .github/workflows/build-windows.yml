@@ -50,6 +50,9 @@ jobs:
       - name: Self-test GUI executable
         run: .\dist\QBX.exe --self-test
 
+      - name: Smoke-test real GUI startup
+        run: .\dist\QBX.exe --ui-smoke-test
+
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
 

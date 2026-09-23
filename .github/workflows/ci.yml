@@ -23,3 +23,5 @@ jobs:
       - run: python -m pytest -q
       - run: qbx --version
       - run: qbx --help
+      - run: qbx pack --help
+      - run: qbx repair --help

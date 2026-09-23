@@ -125,20 +125,30 @@ Planner metadata is embedded in the archive manifest so the decision process can
 
 ## Reproducible product benchmark
 
-Run:
+The Windows product pipeline also ran the real QBX 2.0 pack/verify/unpack path on a deterministic **5,624,000-byte** synthetic corpus containing text, patterns, pseudo-random data and duplicate files.
+
+| Format/profile | Archive bytes | Ratio | Pack | Unpack |
+| --- | ---: | ---: | ---: | ---: |
+| QBX balanced | 1,004,338 | 17.858% | 1.584 s | 0.077 s |
+| QBX smallest | 1,004,336 | 17.858% | 1.758 s | 0.078 s |
+| QBX adaptive AGRP | 1,004,896 | 17.868% | 3.029 s | 0.076 s |
+| ZIP Deflate 9 | 2,011,829 | 35.772% | 0.092 s | 0.016 s |
+
+![QBX 2.0 product archive-size benchmark](docs/assets/product_benchmark_size.svg)
+
+![QBX 2.0 product timing benchmark](docs/assets/product_benchmark_time.svg)
+
+On this corpus, QBX's global deduplication materially reduced archive size relative to ordinary ZIP because duplicate files were intentionally present. ZIP packed and unpacked faster. AGRP spent additional packing time profiling/planning and produced nearly the same archive size as the local-smallest QBX mode while giving the fastest QBX unpack measurement in this run.
+
+These are **corpus- and runner-specific observations**, not universal claims. The verified Windows run is recorded in [benchmarks/results/v2_windows_2026-09-23.json](benchmarks/results/v2_windows_2026-09-23.json).
+
+Run the benchmark yourself:
 
 ```bash
 python benchmarks/v2_benchmark.py
 ```
 
-It generates a deterministic corpus and compares:
-
-- QBX balanced;
-- QBX smallest;
-- QBX adaptive AGRP;
-- ZIP/Deflate level 9.
-
-Every QBX result is verified and extracted, and the reconstructed tree hash must match the source before the benchmark succeeds.
+It compares QBX balanced, smallest, adaptive AGRP and ZIP/Deflate level 9. Every QBX result is verified, extracted and checked against the deterministic source tree hash before the benchmark succeeds.
 
 ## Integrity and safety
 

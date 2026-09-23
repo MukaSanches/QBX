@@ -1,5 +1,11 @@
 # Changelog
 
+## Próxima versão — Pesquisa autônoma
+
+- Rodada 0003: em validação a redução de metadados redundantes nos frames Zstandard do planejador adaptativo.
+- O tamanho original continua armazenado pelo QBX e cada bloco/arquivo continua protegido por SHA-256.
+- A mudança só vira versão se os benchmarks superarem o mínimo científico e toda a build Windows passar.
+
 ## Infraestrutura de pesquisa autônoma — sem mudança de versão
 
 - Adicionado pesquisador cloud recorrente com regras em português.

@@ -1,5 +1,7 @@
 # QBX
 
+[![CI](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml)
+
 **QBX is an experimental goal-driven adaptive archive format.**
 
 Instead of treating an archive as only a stream of compressed files, QBX experiments with content-defined blocks, global deduplication, adaptive representations, integrity verification, and optimization-based archive planning.
@@ -29,6 +31,17 @@ Archive planning problem
 ```
 
 The quantum layer does **not** "quantum-compress bytes". Compression and reconstruction remain classical. The research question is whether combinatorial archive-planning decisions can benefit from quantum or hybrid optimization methods.
+
+## Download
+
+- [QBX v1.0.0 Technology Preview source package](releases/QBX-v1.0.0-tech-preview.tar.gz)
+- [SHA-256 checksum](releases/QBX-v1.0.0-tech-preview.tar.gz.sha256)
+
+Current package SHA-256:
+
+```text
+528aa07d6aa6375a82da041110be9056a10ec56369c2417bbe9807414c0513f6
+```
 
 ## Install
 

@@ -1,5 +1,5 @@
 #define MyAppName "QBX"
-#define MyAppVersion "1.0.0-rc1"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "QBX Project"
 #define MyAppExeName "QBX.exe"
 
@@ -12,7 +12,7 @@ DefaultDirName={autopf}\QBX
 DefaultGroupName=QBX
 DisableProgramGroupPage=yes
 OutputDir=..\installer_output
-OutputBaseFilename=QBX-Setup-1.0.0-rc1
+OutputBaseFilename=QBX-Setup-2.0.0
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

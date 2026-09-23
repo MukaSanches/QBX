@@ -1,5 +1,5 @@
 #define MyAppName "QBX"
-#define MyAppVersion "3.1.0"
+#define MyAppVersion "3.2.0"
 #define MyAppPublisher "QBX Project"
 #define MyAppExeName "QBX.exe"
 
@@ -12,7 +12,7 @@ DefaultDirName={autopf}\QBX
 DefaultGroupName=QBX
 DisableProgramGroupPage=yes
 OutputDir=..\installer_output
-OutputBaseFilename=QBX-Setup-3.1.0
+OutputBaseFilename=QBX-Setup-3.2.0
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -45,10 +45,10 @@ Root: HKCR; Subkey: "QBXArchive\shell\test"; ValueType: string; ValueName: ""; V
 Root: HKCR; Subkey: "QBXArchive\shell\test\command"; ValueType: string; ValueName: ""; ValueData: """{app}\qbx-cli.exe"" test ""%1"""
 Root: HKCR; Subkey: "QBXArchive\shell\extracthere"; ValueType: string; ValueName: ""; ValueData: "Extrair aqui com QBX"
 Root: HKCR; Subkey: "QBXArchive\shell\extracthere\command"; ValueType: string; ValueName: ""; ValueData: """{app}\QBX.exe"" --extract-here ""%1"""
-Root: HKCR; Subkey: "*\shell\QBXCreate"; ValueType: string; ValueName: ""; ValueData: "Criar arquivo QBX"
+Root: HKCR; Subkey: "*\shell\QBXCreate"; ValueType: string; ValueName: ""; ValueData: "Criar/otimizar arquivo com QBX"
 Root: HKCR; Subkey: "*\shell\QBXCreate"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\QBX.exe"""
 Root: HKCR; Subkey: "*\shell\QBXCreate\command"; ValueType: string; ValueName: ""; ValueData: """{app}\QBX.exe"" --create ""%1"""
-Root: HKCR; Subkey: "Directory\shell\QBXCreate"; ValueType: string; ValueName: ""; ValueData: "Criar arquivo QBX desta pasta"
+Root: HKCR; Subkey: "Directory\shell\QBXCreate"; ValueType: string; ValueName: ""; ValueData: "Criar/otimizar arquivo desta pasta com QBX"
 Root: HKCR; Subkey: "Directory\shell\QBXCreate"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\QBX.exe"""
 Root: HKCR; Subkey: "Directory\shell\QBXCreate\command"; ValueType: string; ValueName: ""; ValueData: """{app}\QBX.exe"" --create ""%1"""
 

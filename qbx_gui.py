@@ -11,6 +11,7 @@ import threading
 import time
 from pathlib import Path, PurePosixPath
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from qbx import __version__
@@ -59,6 +60,8 @@ class QBXApp(tk.Tk):
 
     def __init__(self, initial_archive: str | None = None):
         super().__init__()
+        self._configure_fonts()
+        self._configure_theme()
         self.title(f"QBX {__version__}")
         self.geometry("1120x720")
         self.minsize(900, 580)
@@ -95,8 +98,48 @@ class QBXApp(tk.Tk):
         except OSError:
             pass
 
+    def _configure_fonts(self) -> None:
+        """Use Windows-native fonts without feeding Tcl an ambiguous font string.
+
+        "Segoe UI 9" is not a safe Tcl font descriptor because Tcl can parse
+        "UI" as the numeric size. Configure named Tk fonts through tkinter.font
+        instead so menus and packaged builds start reliably on Windows.
+        """
+        targets = {
+            "TkDefaultFont": 9,
+            "TkTextFont": 9,
+            "TkMenuFont": 9,
+            "TkHeadingFont": 9,
+            "TkCaptionFont": 9,
+            "TkSmallCaptionFont": 8,
+            "TkIconFont": 9,
+            "TkTooltipFont": 9,
+        }
+        for name, size in targets.items():
+            try:
+                tkfont.nametofont(name).configure(family="Segoe UI", size=size)
+            except tk.TclError:
+                pass
+        try:
+            tkfont.nametofont("TkFixedFont").configure(family="Consolas", size=9)
+        except tk.TclError:
+            pass
+
+    def _configure_theme(self) -> None:
+        style = ttk.Style(self)
+        themes = style.theme_names()
+        for preferred in ("vista", "xpnative", "clam"):
+            if preferred in themes:
+                try:
+                    style.theme_use(preferred)
+                    break
+                except tk.TclError:
+                    pass
+        style.configure("Treeview", rowheight=25, font=("Segoe UI", 9))
+        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
+        style.configure("TButton", padding=(8, 5))
+
     def _build_ui(self) -> None:
-        self.option_add("*Font", "Segoe UI 9")
         self._build_menu()
         self._build_toolbar()
 
@@ -193,15 +236,15 @@ class QBXApp(tk.Tk):
         toolbar = tk.Frame(self, bd=1, relief="raised", bg="#f0f0f0")
         toolbar.pack(fill="x")
         actions = [
-            ("Add", lambda: self.add_to_archive(False), "#0a7f36"),
-            ("Extract To", self.extract_archive, "#1d4ed8"),
-            ("Test", self.verify_archive, "#7c3aed"),
-            ("View", self.view_selected, "#0369a1"),
-            ("Delete", self.delete_selected, "#b91c1c"),
-            ("Find", self.find_entry, "#a16207"),
-            ("Wizard", self.create_new_archive, "#6d28d9"),
-            ("Info", self.show_info, "#334155"),
-            ("Repair", self.repair_archive, "#be123c"),
+            ("＋\nAdd", lambda: self.add_to_archive(False), "#0a7f36"),
+            ("⇩\nExtract", self.extract_archive, "#1d4ed8"),
+            ("✓\nTest", self.verify_archive, "#7c3aed"),
+            ("▣\nView", self.view_selected, "#0369a1"),
+            ("×\nDelete", self.delete_selected, "#b91c1c"),
+            ("⌕\nFind", self.find_entry, "#a16207"),
+            ("◆\nWizard", self.create_new_archive, "#6d28d9"),
+            ("i\nInfo", self.show_info, "#334155"),
+            ("↻\nRepair", self.repair_archive, "#be123c"),
         ]
         self.toolbar_buttons: list[tk.Button] = []
         for label, command, color in actions:
@@ -209,13 +252,14 @@ class QBXApp(tk.Tk):
                 toolbar,
                 text=label,
                 command=command,
-                width=11,
+                width=10,
                 height=3,
                 relief="flat",
                 bg="#f0f0f0",
                 fg=color,
                 activebackground="#dbeafe",
                 font=("Segoe UI", 9, "bold"),
+                cursor="hand2",
             )
             b.pack(side="left", padx=1, pady=3)
             self.toolbar_buttons.append(b)
@@ -686,6 +730,22 @@ class QBXApp(tk.Tk):
         self.destroy()
 
 
+def ui_smoke_test() -> int:
+    """Create and destroy the real GUI to catch packaged Tk startup failures."""
+    try:
+        app = QBXApp()
+        app.withdraw()
+        app.update_idletasks()
+        app.update()
+        app.destroy()
+        return 0
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        return 1
+
+
 def _extract_here(archive: str) -> int:
     path = Path(archive)
     unpack(path, path.parent / path.stem, overwrite=False)
@@ -704,6 +764,8 @@ def main() -> int:
         return 0
     if "--self-test" in sys.argv:
         return self_test()
+    if "--ui-smoke-test" in sys.argv:
+        return ui_smoke_test()
     if "--extract-here" in sys.argv:
         i = sys.argv.index("--extract-here")
         return 2 if i + 1 >= len(sys.argv) else _extract_here(sys.argv[i + 1])

@@ -342,7 +342,19 @@ def pack(
     output: str | Path,
     *,
     profile: str = "balanced",
+    max_size_mb: float | None = None,
+    max_decode_ms: float | None = None,
 ) -> dict:
+    if profile in {"adaptive", "adaptive-v2"}:
+        from qbx.adaptive_v2 import pack_adaptive
+
+        return pack_adaptive(
+            source,
+            output,
+            max_size_mb=max_size_mb,
+            max_decode_ms=max_decode_ms,
+        )
+
     started = time.perf_counter()
     source = Path(source)
     output = Path(output)

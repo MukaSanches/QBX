@@ -8,3 +8,8 @@ testdata/
 *.egg-info/
 dist/
 build/
+
+
+# Agente cloud Gemini
+.gemini/
+gha-creds-*.json

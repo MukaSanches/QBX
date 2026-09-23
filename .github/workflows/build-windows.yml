@@ -1,14 +1,15 @@
-name: Windows product
+name: Produto Windows
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
-      - product/v3
-      - hotfix/v3.0.1-ui
-      - ui/v3.1.0
-      - product/v3.2-universal
+    paths-ignore:
+      - "research/**"
     tags:
       - "v*"
 
@@ -22,31 +23,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ler versão do produto
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "VERSION inválida: $version"
+          }
+          "QBX_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Versão detectada: $version"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install Python dependencies
+      - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[build,dev]"
 
-      - name: Test Python engine
+      - name: Testar motor Python
         run: python -m pytest -q
 
-      - name: Run QBX V3 product benchmark
+      - name: Executar benchmark QBX V3
         run: python benchmarks/v3_benchmark.py
 
-      - name: Run QBX 3.2 universal bridge benchmark
+      - name: Executar benchmark da ponte universal
         run: python benchmarks/v3_2_bridge_benchmark.py
 
-      - name: Build CLI executable
+      - name: Compilar executável de linha de comando
         run: pyinstaller --clean --onefile --name qbx-cli qbx_cli.py
 
-      - name: Build GUI executable
+      - name: Compilar aplicativo gráfico
         run: pyinstaller --clean --onefile --windowed --name QBX qbx_gui.py
 
-      - name: Smoke test CLI
+      - name: Testar executável de linha de comando
         run: |
           .\dist\qbx-cli.exe --version
           .\dist\qbx-cli.exe --help
@@ -54,25 +67,28 @@ jobs:
           .\dist\qbx-cli.exe create --help
           .\dist\qbx-cli.exe formats
 
-      - name: Self-test GUI executable
+      - name: Autoteste do aplicativo gráfico
         run: .\dist\QBX.exe --self-test
 
-      - name: Smoke-test real GUI startup
+      - name: Teste real de abertura da interface
         run: .\dist\QBX.exe --ui-smoke-test
 
-      - name: Install Inno Setup
+      - name: Instalar Inno Setup
         run: choco install innosetup --yes --no-progress
 
-      - name: Build Windows installer
+      - name: Gerar instalador do Windows
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) {
-            throw "Inno Setup compiler not found at $iscc"
+            throw "Compilador Inno Setup não encontrado em $iscc"
           }
-          & $iscc installer\qbx.iss
+          & $iscc "/DMyAppVersion=$env:QBX_VERSION" installer\qbx.iss
+          if ($LASTEXITCODE -ne 0) {
+            throw "Falha ao gerar o instalador."
+          }
 
-      - name: Package portable build and checksums
+      - name: Montar versão portátil e checksums
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force artifacts | Out-Null
@@ -81,13 +97,22 @@ jobs:
           Copy-Item dist\qbx-cli.exe portable\
           Copy-Item README.md portable\
           Copy-Item LICENSE portable\
-          Compress-Archive -Path portable\* -DestinationPath artifacts\QBX-Portable-3.2.0.zip -Force
-          Copy-Item installer_output\QBX-Setup-3.2.0.exe artifacts\
+
+          $portable = "artifacts\QBX-Portable-$env:QBX_VERSION.zip"
+          $installerSource = "installer_output\QBX-Setup-$env:QBX_VERSION.exe"
+          $installerArtifact = "artifacts\QBX-Setup-$env:QBX_VERSION.exe"
+
+          Compress-Archive -Path portable\* -DestinationPath $portable -Force
+          if (-not (Test-Path $installerSource)) {
+            throw "Instalador esperado não encontrado: $installerSource"
+          }
+          Copy-Item $installerSource $installerArtifact
           Copy-Item benchmarks\results\v3_latest.json artifacts\
           Copy-Item benchmarks\results\v3_2_bridge.json artifacts\
+
           $files = @(
-            "artifacts\QBX-Portable-3.2.0.zip",
-            "artifacts\QBX-Setup-3.2.0.exe",
+            $portable,
+            $installerArtifact,
             "dist\QBX.exe",
             "dist\qbx-cli.exe",
             "artifacts\v3_latest.json",
@@ -100,34 +125,32 @@ jobs:
           $lines | Set-Content -Encoding ascii artifacts\SHA256SUMS.txt
           Get-Content artifacts\SHA256SUMS.txt
 
-      - name: Upload Windows product
+      - name: Publicar artefato do Windows
         uses: actions/upload-artifact@v4
         with:
-          name: QBX-Windows-3.2.0
+          name: QBX-Windows-${{ steps.version.outputs.version }}
           path: |
-            artifacts/QBX-Portable-3.2.0.zip
-            artifacts/QBX-Setup-3.2.0.exe
+            artifacts/QBX-Portable-${{ steps.version.outputs.version }}.zip
+            artifacts/QBX-Setup-${{ steps.version.outputs.version }}.exe
             artifacts/SHA256SUMS.txt
             artifacts/v3_latest.json
             artifacts/v3_2_bridge.json
           if-no-files-found: error
 
-      - name: Publish GitHub Release from main
+      - name: Publicar GitHub Release quando a main estiver validada
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v3.2.0"
+          $tag = "v$env:QBX_VERSION"
           gh release view $tag 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag `
-              artifacts\QBX-Portable-3.2.0.zip `
-              artifacts\QBX-Setup-3.2.0.exe `
-              artifacts\SHA256SUMS.txt `
-              artifacts\v3_latest.json `
-              artifacts\v3_2_bridge.json `
-              --target $env:GITHUB_SHA `
-              --title "QBX 3.2.0 — Universal Archive Bridge" `
-              --notes "QBX 3.2.0 adds the Universal Archive Bridge: compressed QBX/ZIP/7z/RAR inputs can be decontainerized before recompression, and the GUI can create QBX, ZIP, 7z and standard RAR5 outputs. Full AGRP+ARK resilience remains embedded only in QBX; RAR output uses an installed RAR/WinRAR encoder. Includes bridge benchmark and packaged-GUI smoke tests."
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "A release $tag já existe. O build foi validado, mas nenhuma release duplicada será criada."
+            exit 0
           }
+
+          $portable = "artifacts\QBX-Portable-$env:QBX_VERSION.zip"
+          $installer = "artifacts\QBX-Setup-$env:QBX_VERSION.exe"
+          $notes = "QBX $env:QBX_VERSION foi compilado e validado automaticamente. Testes do motor, benchmarks, executáveis, abertura da interface, instalador e checksums SHA-256 foram verificados. Consulte CHANGELOG.md e a pasta research/ para ver em português simples o que mudou."
+          gh release create $tag $portable $installer artifacts\SHA256SUMS.txt artifacts\v3_latest.json artifacts\v3_2_bridge.json --target $env:GITHUB_SHA --title "QBX $env:QBX_VERSION — versão validada" --notes $notes

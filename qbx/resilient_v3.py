@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
+from qbx import __version__
 from qbx.adaptive_v2 import _global_plan, _profile_block
 from qbx.core import (
     BLOCK_META,
@@ -36,7 +37,7 @@ from qbx.core import (
 
 MAGIC_V3 = b"QBX3\r\n\x1a\n"
 FORMAT_VERSION_V3 = 3
-PRODUCT_VERSION = "3.2.0"
+PRODUCT_VERSION = __version__
 DEFAULT_REPAIR_BUDGET_PCT = 5.0
 ARK_GROUP_SIZE = 7
 ARK_CANDIDATE_LIMIT = 14

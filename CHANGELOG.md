@@ -1,5 +1,15 @@
 # Changelog
 
+## Infraestrutura de pesquisa autônoma — sem mudança de versão
+
+- Adicionado pesquisador cloud recorrente com regras em português.
+- Adicionados gates independentes de integridade e tamanho antes do merge.
+- Adicionada validação automática completa em Linux e Windows antes de aceitar uma candidata.
+- Adicionado merge automático somente depois de todos os gates.
+- Tornada dinâmica a geração do número do instalador e da GitHub Release.
+- Adicionado diário permanente em `research/`.
+- Esta mudança de infraestrutura não afirma ganho de compressão e não altera a versão 3.2.0.
+
 ## 3.2.0 — Universal Archive Bridge
 
 - Added **Universal Archive Bridge** for QBX, ZIP, 7z and RAR workflows.

@@ -1,5 +1,11 @@
 # Changelog
 
+## Próxima versão — Pesquisa autônoma
+
+- Rodada 0002: em validação a remoção do checksum interno dos frames Zstandard usados pelo planejador adaptativo.
+- O QBX continua verificando cada bloco e cada arquivo com SHA-256; nenhuma verificação de integridade do contêiner foi removida.
+- A mudança só poderá virar nova versão se os testes, os benchmarks e a build real do Windows comprovarem ganho sem regressão.
+
 ## Infraestrutura de pesquisa autônoma — sem mudança de versão
 
 - Adicionado pesquisador cloud recorrente com regras em português.

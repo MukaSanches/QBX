@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.2.0 — Universal Archive Bridge
+
+- Added **Universal Archive Bridge** for QBX, ZIP, 7z and RAR workflows.
+- Added automatic decontainerization of selected QBX/ZIP/7z/RAR inputs before recompression.
+- Added a visual output-format selector to the Windows creation dialog.
+- Added standard ZIP/Deflate and 7z output.
+- Added standard RAR5 output when RAR/WinRAR is installed; QBX does not bundle the proprietary RAR encoder.
+- Added explicit UI messaging that full AGRP + ARK resilience is embedded only in `.qbx`.
+- Added `qbx create` and `qbx formats` CLI commands.
+- Added traversal-safe ZIP/7z preprocessing and validated external RAR extraction.
+- Added regression tests proving an already-compressed ZIP can become a smaller QBX when decontainerization exposes duplicated logical content.
+- Added `benchmarks/v3_2_bridge_benchmark.py` and release evidence `v3_2_bridge.json`.
+- Preserved V2/V3 QBX read compatibility, ARK repair and existing Windows workflows.
+
 ## 3.1.0 — Classic Archive Manager UI
 
 - Rebuilt the Windows GUI on Qt/PySide6 for a substantially more polished desktop experience.

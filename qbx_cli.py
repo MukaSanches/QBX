@@ -6,6 +6,7 @@ from pathlib import Path
 
 from qbx import __version__
 from qbx.api import inspect, pack, repair, unpack, verify
+from qbx.bridge import create_archive, output_capabilities
 from qbx.core import QBXError
 
 
@@ -16,7 +17,10 @@ def emit(value: object) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="qbx",
-        description="QBX 3.0 archive engine with AGRP global planning and ARK repair lattice",
+        description=(
+            "QBX 3.2 universal archive manager: QBX AGRP+ARK plus "
+            "optimized ZIP, 7z and RAR bridge workflows"
+        ),
     )
     parser.add_argument("--version", action="version", version=f"QBX {__version__}")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -32,13 +36,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--max-size-mb", type=float, default=None)
     p.add_argument("--max-decode-ms", type=float, default=None)
-    p.add_argument(
-        "--repair-budget-pct",
-        type=float,
-        default=5.0,
-        help="Maximum V3 repair payload budget as percent of primary payload (default: 5)",
+    p.add_argument("--repair-budget-pct", type=float, default=5.0)
+    p.add_argument("--comment", default=None)
+
+    p = sub.add_parser(
+        "create",
+        help="Create QBX, ZIP, 7z or RAR; optionally decontainerize compressed input first",
     )
-    p.add_argument("--comment", default=None, help="Optional archive comment")
+    p.add_argument("output")
+    p.add_argument("sources", nargs="+")
+    p.add_argument("--format", choices=["qbx", "zip", "7z", "rar"], default="qbx")
+    p.add_argument(
+        "--keep-source-container",
+        action="store_true",
+        help="Do not unpack QBX/ZIP/7z/RAR inputs before creating the new archive",
+    )
+    p.add_argument(
+        "--profile",
+        choices=["resilient", "adaptive", "fast", "balanced", "smallest"],
+        default="resilient",
+    )
+    p.add_argument("--max-size-mb", type=float, default=None)
+    p.add_argument("--max-decode-ms", type=float, default=None)
+    p.add_argument("--repair-budget-pct", type=float, default=5.0)
+    p.add_argument("--comment", default=None)
+
+    sub.add_parser("formats", help="Show available output formats and external dependencies")
 
     p = sub.add_parser("unpack", aliases=["extract"], help="Extract a QBX archive safely")
     p.add_argument("archive")
@@ -53,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("output", nargs="?", default=None)
     p.add_argument("--repair-budget-pct", type=float, default=5.0)
 
-    p = sub.add_parser("list", aliases=["info"], help="Show archive manifest and planner metadata")
+    p = sub.add_parser("list", aliases=["info"], help="Show QBX manifest and planner metadata")
     p.add_argument("archive")
 
     return parser
@@ -72,6 +95,20 @@ def main() -> None:
                 repair_budget_pct=args.repair_budget_pct,
                 comment=args.comment,
             )
+        elif args.cmd == "create":
+            result = create_archive(
+                args.sources,
+                args.output,
+                output_format=args.format,
+                optimize_source_archives=not args.keep_source_container,
+                qbx_profile=args.profile,
+                max_size_mb=args.max_size_mb,
+                max_decode_ms=args.max_decode_ms,
+                repair_budget_pct=args.repair_budget_pct,
+                comment=args.comment,
+            )
+        elif args.cmd == "formats":
+            result = output_capabilities()
         elif args.cmd in {"unpack", "extract"}:
             result = unpack(args.archive, args.destination, overwrite=args.overwrite)
         elif args.cmd in {"verify", "test"}:

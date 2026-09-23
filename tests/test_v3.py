@@ -47,7 +47,7 @@ def test_v3_roundtrip_manifest_and_ark(tmp_path):
     assert result["format_version"] == 3
     assert result["planner"] == "AGRP+ARK"
     assert manifest["version"] == 3
-    assert manifest["product_version"] == "3.0.1"
+    assert manifest["product_version"] == "3.1.0"
     assert manifest["planner"]["name"] == "AGRP+ARK"
     assert manifest["comment"] == "v3-test"
     assert manifest["statistics"]["repair_edges"] > 0

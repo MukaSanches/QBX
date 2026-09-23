@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.1 — Windows GUI startup hotfix
+
+- Fixed the packaged Windows GUI crash: `_tkinter.TclError: expected integer but got "UI"`.
+- Replaced the ambiguous Tcl font descriptor `Segoe UI 9` with safe named Tk font configuration.
+- Added a real GUI startup smoke test that instantiates and destroys the packaged application.
+- Refined the classic archive-manager toolbar for clearer actions.
+- Preserved QBX V3 AGRP + ARK archive, verification, recovery and repair behavior.
+- Rebuilt portable and installer packages as 3.0.1.
+
 ## 3.0.0 — AGRP + ARK resilient archive
 
 - Added QBX V3 container magic and backward-compatible V2/V3 API dispatch.

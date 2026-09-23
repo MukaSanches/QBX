@@ -14,7 +14,7 @@ def emit(value: object) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="qbx",
-        description="QBX adaptive archive engine",
+        description="QBX 2.0 adaptive archive engine with AGRP global planning",
     )
     parser.add_argument("--version", action="version", version=f"QBX {__version__}")
 
@@ -25,9 +25,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("output")
     p.add_argument(
         "--profile",
-        choices=["fast", "balanced", "smallest"],
-        default="balanced",
-        help="Compression objective (default: balanced)",
+        choices=["adaptive", "fast", "balanced", "smallest"],
+        default="adaptive",
+        help="Compression strategy (default: adaptive AGRP)",
+    )
+    p.add_argument(
+        "--max-size-mb",
+        type=float,
+        default=None,
+        help="Optional adaptive global stored-payload budget in MiB",
+    )
+    p.add_argument(
+        "--max-decode-ms",
+        type=float,
+        default=None,
+        help="Optional adaptive measured decode-latency budget in milliseconds",
     )
 
     p = sub.add_parser("unpack", help="Extract a QBX archive safely")
@@ -42,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("verify", help="Verify all blocks and reconstructed files")
     p.add_argument("archive")
 
-    p = sub.add_parser("list", help="Show archive manifest")
+    p = sub.add_parser("list", help="Show archive manifest and planner metadata")
     p.add_argument("archive")
 
     return parser
@@ -53,7 +65,13 @@ def main() -> None:
 
     try:
         if args.cmd == "pack":
-            result = pack(args.source, args.output, profile=args.profile)
+            result = pack(
+                args.source,
+                args.output,
+                profile=args.profile,
+                max_size_mb=args.max_size_mb,
+                max_decode_ms=args.max_decode_ms,
+            )
         elif args.cmd == "unpack":
             result = unpack(
                 args.archive,
@@ -67,7 +85,9 @@ def main() -> None:
             result = {
                 "format": manifest["format"],
                 "version": manifest["version"],
+                "product_version": manifest.get("product_version"),
                 "compression_profile": manifest["compression_profile"],
+                "planner": manifest.get("planner"),
                 "statistics": manifest["statistics"],
                 "directories": manifest.get("directories", []),
                 "files": [

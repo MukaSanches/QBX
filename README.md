@@ -2,111 +2,83 @@
 
 [![CI](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml)
 
-**QBX is an experimental goal-driven adaptive archive format.**
+QBX is an experimental adaptive archive format focused on content-defined storage, global deduplication, per-block compression selection, integrity verification, and research into classical/quantum archive planning.
 
-Instead of treating an archive as only a stream of compressed files, QBX experiments with content-defined blocks, global deduplication, adaptive representations, integrity verification, and optimization-based archive planning.
+## Product candidate: 1.0.0-rc1
 
-## QBX 1.0 Technology Preview
+The product branch provides a usable archive workflow:
 
-Current storage pipeline:
+    files and folders
+        -> content-defined chunks
+        -> SHA-256 block identity
+        -> global deduplication
+        -> RAW / Zstandard / Deflate / LZMA selection
+        -> .qbx container
+        -> verification
+        -> safe lossless extraction
 
-```text
-Data
-  → Content-defined chunking
-  → SHA-256 content addressing
-  → Global deduplication
-  → Adaptive RAW / ZLIB / LZMA representation
-  → QBX container
-  → Verified lossless reconstruction
-```
+Quantum hardware is not required to create or open a QBX archive.
 
-QBX also contains an experimental quantum-planning research pipeline:
+## Install from source
 
-```text
-Archive planning problem
-  → QUBO
-  → Quantum circuit
-  → Measurement
-  → Candidate archive strategy
-```
+    python -m pip install -e .
 
-The quantum layer does **not** "quantum-compress bytes". Compression and reconstruction remain classical. The research question is whether combinatorial archive-planning decisions can benefit from quantum or hybrid optimization methods.
+For development:
 
-## Download
+    python -m pip install -e ".[dev]"
 
-- [QBX v1.0.0 Technology Preview source package](releases/QBX-v1.0.0-tech-preview.tar.gz)
-- [SHA-256 checksum](releases/QBX-v1.0.0-tech-preview.tar.gz.sha256)
+## Use
 
-Current package SHA-256:
+Create an archive:
 
-```text
-528aa07d6aa6375a82da041110be9056a10ec56369c2417bbe9807414c0513f6
-```
+    qbx pack MyFolder MyFolder.qbx --profile balanced
 
-## Install
+Profiles:
 
-Core + development tests:
+- fast: RAW + fast Zstandard;
+- balanced: RAW + Zstandard + Deflate + LZMA;
+- smallest: higher compression settings across all codecs.
 
-```bash
-python -m pip install -e '.[dev]'
-```
+Verify before extraction:
 
-Optional quantum experiment:
+    qbx verify MyFolder.qbx
 
-```bash
-python -m pip install -e '.[quantum]'
-```
+Inspect contents:
 
-## Usage
+    qbx list MyFolder.qbx
 
-Pack:
+Extract:
 
-```bash
-qbx pack PATH archive.qbx
-```
+    qbx unpack MyFolder.qbx RestoredFolder
 
-Unpack:
+Existing files are not overwritten unless explicitly requested:
 
-```bash
-qbx unpack archive.qbx OUTPUT
-```
+    qbx unpack MyFolder.qbx RestoredFolder --overwrite
 
-Run tests:
+## Benchmark
 
-```bash
-python -m pytest -q
-```
+Run the reproducible local product benchmark:
 
-Run the quantum research experiment:
+    python benchmarks/product_benchmark.py
 
-```bash
-PYTHONPATH=. python -m experiments.quantum_planner_v1
-```
+It compares the QBX profiles with Python ZIP/Deflate on the same generated dataset. Results are measurements for that dataset and machine, not universal compression claims.
 
-## Verified research run
+## Windows executable
 
-The first qBraid/Aer validation run used:
+The product branch includes a GitHub Actions build for a standalone qbx.exe. The executable is tested before being uploaded as a workflow artifact. It is not currently code-signed.
 
-- 9 qubits
-- 4096 shots
-- Qiskit Aer simulator
-- exact classical optimum: 155
-- best sampled solution: 155
+## Quantum research
 
-That run recovered the known optimum and validated the end-to-end QBX → QUBO → quantum-circuit → measurement pipeline.
+QBX also explores representing archive-planning decisions as QUBO problems and solving them with classical and quantum/hybrid optimization methods.
 
-**This is not evidence of quantum advantage.** The current experiment is a pipeline validation, not QAOA.
+The quantum layer is a planner, not a mechanism that directly compresses arbitrary bytes. Simulator success does not establish quantum advantage.
 
-## Safety / maturity
+## Safety and maturity
 
-QBX is a research technology preview. Do not use it as the only copy of important data. Archive extraction includes path-traversal protection and SHA-256 reconstruction checks, but the format and implementation are still experimental.
+QBX 1.0.0-rc1 is a release candidate. Keep independent copies of important data until the format and implementation have undergone broader compatibility, fuzzing, and independent review.
 
-## Documentation
-
-- [QBX Research Specification 1.0](docs/QBX-SPEC-1.0.md)
-- [Quantum Optimizer Research Notes](docs/QUANTUM-OPTIMIZER.md)
-- [Changelog](CHANGELOG.md)
+See [docs/PRODUCT.md](docs/PRODUCT.md), [docs/QBX-SPEC-1.0.md](docs/QBX-SPEC-1.0.md), and [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT.

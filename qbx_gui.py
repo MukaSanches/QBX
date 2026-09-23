@@ -1118,11 +1118,14 @@ class QBXWindow(QMainWindow):
         self._save_config()
         out: Path = options["output"]
 
-        profile_label = (
-            "AGRP + ARK"
-            if options["profile"] == "resilient"
-            else options["profile"].upper()
-        )
+        if options["output_format"] == "qbx":
+            profile_label = (
+                "AGRP + ARK"
+                if options["profile"] == "resilient"
+                else options["profile"].upper()
+            )
+        else:
+            profile_label = "Universal Bridge"
         self._run(
             f"Criando {options['output_format'].upper()} com {profile_label}...",
             lambda: self._stage_and_pack(options),

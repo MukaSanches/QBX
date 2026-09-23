@@ -91,10 +91,13 @@ def _candidate_specs(raw: bytes):
     yield CODEC_RAW, "raw", None, (lambda value: value), (lambda value: value)
 
     for level in (1, 3, 9, 19):
+        # O próprio contêiner QBX já valida cada bloco com SHA-256.
+        # O checksum interno do frame Zstandard seria uma segunda verificação
+        # redundante e adiciona 4 bytes a cada frame comprimido.
         compressor = zstd.ZstdCompressor(
             level=level,
             threads=0,
-            write_checksum=True,
+            write_checksum=False,
             write_content_size=True,
             write_dict_id=False,
         )

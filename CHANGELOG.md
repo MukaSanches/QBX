@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.1.0 — Classic Archive Manager UI
+
+- Rebuilt the Windows GUI on Qt/PySide6 for a substantially more polished desktop experience.
+- Added a dark classic archive-manager layout with familiar menu, toolbar, address and file-list workflow.
+- Added direct filesystem browsing when no archive is open.
+- Added prominent **Criar QBX** flow with source selection, output destination and advanced planning controls.
+- Added V3 Resilient profile controls for AGRP size/decode goals and ARK byte budget.
+- Added an in-app technology explanation for CDC, SHA-256, global deduplication, multi-codec profiling, Pareto pruning, AGRP and ARK.
+- Added drag-and-drop opening and archive addition workflows.
+- Preserved add, extract, test, view, delete, search, info, comments, favorites and repair.
+- Kept the QBX V3 archive engine and V2 compatibility intact.
+- Windows CI still performs engine self-test plus an actual packaged-GUI startup smoke test.
+
 ## 3.0.1 — Windows GUI startup hotfix
 
 - Fixed the packaged Windows GUI crash: `_tkinter.TclError: expected integer but got "UI"`.

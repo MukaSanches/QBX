@@ -1,4 +1,4 @@
-name: Windows executable
+name: Windows product
 
 on:
   workflow_dispatch:
@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - product/v1
+      - product/v1-ui
     tags:
       - "v*"
 
@@ -20,25 +21,65 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[build,dev]"
 
-      - name: Test
+      - name: Test Python engine
         run: python -m pytest -q
 
-      - name: Build qbx.exe
-        run: pyinstaller --clean --onefile --name qbx qbx_cli.py
+      - name: Build CLI executable
+        run: pyinstaller --clean --onefile --name qbx-cli qbx_cli.py
 
-      - name: Smoke test executable
-        run: .\dist\qbx.exe --version
+      - name: Build GUI executable
+        run: pyinstaller --clean --onefile --windowed --name QBX qbx_gui.py
 
-      - name: Upload Windows executable
+      - name: Smoke test CLI
+        run: |
+          .\dist\qbx-cli.exe --version
+          .\dist\qbx-cli.exe --help
+
+      - name: Self-test GUI executable
+        run: .\dist\QBX.exe --self-test
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            throw "Inno Setup compiler not found at $iscc"
+          }
+          & $iscc installer\qbx.iss
+
+      - name: Package portable build and checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Compress-Archive -Path dist\QBX.exe,dist\qbx-cli.exe -DestinationPath artifacts\QBX-Portable-1.0.0-rc1.zip -Force
+          Copy-Item installer_output\QBX-Setup-1.0.0-rc1.exe artifacts\
+          $files = @(
+            "artifacts\QBX-Portable-1.0.0-rc1.zip",
+            "artifacts\QBX-Setup-1.0.0-rc1.exe",
+            "dist\QBX.exe",
+            "dist\qbx-cli.exe"
+          )
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            "$hash  $file"
+          }
+          $lines | Set-Content -Encoding ascii artifacts\SHA256SUMS.txt
+          Get-Content artifacts\SHA256SUMS.txt
+
+      - name: Upload Windows product
         uses: actions/upload-artifact@v4
         with:
-          name: QBX-Windows-x64
+          name: QBX-Windows-1.0.0-rc1
           path: |
-            dist/qbx.exe
-            dist/qbx.exe.sha256
+            artifacts/QBX-Portable-1.0.0-rc1.zip
+            artifacts/QBX-Setup-1.0.0-rc1.exe
+            artifacts/SHA256SUMS.txt
           if-no-files-found: error

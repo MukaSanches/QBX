@@ -1,5 +1,5 @@
 #define MyAppName "QBX"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "3.0.0"
 #define MyAppPublisher "QBX Project"
 #define MyAppExeName "QBX.exe"
 
@@ -12,7 +12,7 @@ DefaultDirName={autopf}\QBX
 DefaultGroupName=QBX
 DisableProgramGroupPage=yes
 OutputDir=..\installer_output
-OutputBaseFilename=QBX-Setup-2.0.0
+OutputBaseFilename=QBX-Setup-3.0.0
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -26,6 +26,7 @@ ChangesAssociations=yes
 Source: "..\dist\QBX.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist\qbx-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\QBX"; Filename: "{app}\QBX.exe"
@@ -40,6 +41,16 @@ Root: HKCR; Subkey: ".qbx"; ValueType: string; ValueName: ""; ValueData: "QBXArc
 Root: HKCR; Subkey: "QBXArchive"; ValueType: string; ValueName: ""; ValueData: "QBX Archive"; Flags: uninsdeletekey
 Root: HKCR; Subkey: "QBXArchive\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\QBX.exe"",0"
 Root: HKCR; Subkey: "QBXArchive\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\QBX.exe"" ""%1"""
+Root: HKCR; Subkey: "QBXArchive\shell\test"; ValueType: string; ValueName: ""; ValueData: "Testar arquivo QBX"
+Root: HKCR; Subkey: "QBXArchive\shell\test\command"; ValueType: string; ValueName: ""; ValueData: """{app}\qbx-cli.exe"" test ""%1"""
+Root: HKCR; Subkey: "QBXArchive\shell\extracthere"; ValueType: string; ValueName: ""; ValueData: "Extrair aqui com QBX"
+Root: HKCR; Subkey: "QBXArchive\shell\extracthere\command"; ValueType: string; ValueName: ""; ValueData: """{app}\QBX.exe"" --extract-here ""%1"""
+Root: HKCR; Subkey: "*\shell\QBXCreate"; ValueType: string; ValueName: ""; ValueData: "Criar arquivo QBX"
+Root: HKCR; Subkey: "*\shell\QBXCreate"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\QBX.exe"""
+Root: HKCR; Subkey: "*\shell\QBXCreate\command"; ValueType: string; ValueName: ""; ValueData: """{app}\QBX.exe"" --create ""%1"""
+Root: HKCR; Subkey: "Directory\shell\QBXCreate"; ValueType: string; ValueName: ""; ValueData: "Criar arquivo QBX desta pasta"
+Root: HKCR; Subkey: "Directory\shell\QBXCreate"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\QBX.exe"""
+Root: HKCR; Subkey: "Directory\shell\QBXCreate\command"; ValueType: string; ValueName: ""; ValueData: """{app}\QBX.exe"" --create ""%1"""
 
 [Run]
 Filename: "{app}\QBX.exe"; Description: "Abrir QBX"; Flags: nowait postinstall skipifsilent

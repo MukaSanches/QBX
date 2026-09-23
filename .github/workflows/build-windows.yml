@@ -5,8 +5,7 @@ on:
   push:
     branches:
       - main
-      - product/v1
-      - product/v1-ui
+      - product/v2
     tags:
       - "v*"
 
@@ -28,6 +27,9 @@ jobs:
 
       - name: Test Python engine
         run: python -m pytest -q
+
+      - name: Run QBX 2.0 benchmark
+        run: python benchmarks/v2_benchmark.py
 
       - name: Build CLI executable
         run: pyinstaller --clean --onefile --name qbx-cli qbx_cli.py
@@ -59,11 +61,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force artifacts | Out-Null
-          Compress-Archive -Path dist\QBX.exe,dist\qbx-cli.exe -DestinationPath artifacts\QBX-Portable-1.0.0-rc1.zip -Force
-          Copy-Item installer_output\QBX-Setup-1.0.0-rc1.exe artifacts\
+          Compress-Archive -Path dist\QBX.exe,dist\qbx-cli.exe -DestinationPath artifacts\QBX-Portable-2.0.0.zip -Force
+          Copy-Item installer_output\QBX-Setup-2.0.0.exe artifacts\
+          Copy-Item benchmarks\results\v2_latest.json artifacts\
           $files = @(
-            "artifacts\QBX-Portable-1.0.0-rc1.zip",
-            "artifacts\QBX-Setup-1.0.0-rc1.exe",
+            "artifacts\QBX-Portable-2.0.0.zip",
+            "artifacts\QBX-Setup-2.0.0.exe",
             "dist\QBX.exe",
             "dist\qbx-cli.exe"
           )
@@ -77,9 +80,10 @@ jobs:
       - name: Upload Windows product
         uses: actions/upload-artifact@v4
         with:
-          name: QBX-Windows-1.0.0-rc1
+          name: QBX-Windows-2.0.0
           path: |
-            artifacts/QBX-Portable-1.0.0-rc1.zip
-            artifacts/QBX-Setup-1.0.0-rc1.exe
+            artifacts/QBX-Portable-2.0.0.zip
+            artifacts/QBX-Setup-2.0.0.exe
             artifacts/SHA256SUMS.txt
+            artifacts/v2_latest.json
           if-no-files-found: error

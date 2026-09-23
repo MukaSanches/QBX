@@ -35,7 +35,7 @@ def self_test() -> int:
             archive = root / "selftest.qbx"
             out = root / "out"
 
-            pack(src, archive, profile="balanced")
+            pack(src, archive, profile="adaptive")
             result = verify(archive)
             if not result.get("ok"):
                 return 2
@@ -57,7 +57,7 @@ class QBXApp(tk.Tk):
 
         self.source_var = tk.StringVar()
         self.output_var = tk.StringVar()
-        self.profile_var = tk.StringVar(value="balanced")
+        self.profile_var = tk.StringVar(value="adaptive")
         self.archive_var = tk.StringVar(value=initial_archive or "")
         self.destination_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Pronto.")
@@ -75,7 +75,7 @@ class QBXApp(tk.Tk):
         ttk.Label(root, text="QBX", font=("Segoe UI", 24, "bold")).pack(anchor="w")
         ttk.Label(
             root,
-            text="Arquivo adaptativo com deduplicação, compressão por bloco e verificação SHA-256",
+            text="QBX 2.0 • AGRP global • deduplicação • Pareto • SHA-256",
         ).pack(anchor="w", pady=(0, 12))
 
         notebook = ttk.Notebook(root)
@@ -129,13 +129,13 @@ class QBXApp(tk.Tk):
             tab,
             textvariable=self.profile_var,
             state="readonly",
-            values=("fast", "balanced", "smallest"),
+            values=("adaptive", "fast", "balanced", "smallest"),
             width=16,
         ).grid(row=2, column=1, sticky="w", padx=(10, 8), pady=6)
 
         ttk.Label(
             tab,
-            text="fast = velocidade • balanced = equilíbrio • smallest = menor tamanho",
+            text="adaptive = AGRP científico global • fast = velocidade • balanced = equilíbrio • smallest = menor tamanho",
         ).grid(row=3, column=1, sticky="w", padx=(10, 8), pady=(0, 12))
 
         self.create_button = ttk.Button(
@@ -148,8 +148,8 @@ class QBXApp(tk.Tk):
             tab,
             text=(
                 "O QBX divide o conteúdo em blocos, elimina blocos duplicados, "
-                "escolhe RAW/Zstandard/Deflate/LZMA e registra SHA-256 para "
-                "verificar a reconstrução."
+                "mede alternativas RAW/Zstandard/Deflate/LZMA, remove opções dominadas por Pareto, "
+                "planeja globalmente com AGRP e registra SHA-256 para verificar a reconstrução."
             ),
             wraplength=760,
             justify="left",

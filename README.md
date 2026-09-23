@@ -1,94 +1,186 @@
-# QBX
+# QBX 2.0
 
 [![CI](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/ci.yml)
 [![Windows product](https://github.com/MukaSanches/QBX/actions/workflows/build-windows.yml/badge.svg)](https://github.com/MukaSanches/QBX/actions/workflows/build-windows.yml)
 
-QBX is an experimental adaptive archive format focused on content-defined storage, global deduplication, per-block compression selection, integrity verification, and research into classical/quantum archive planning.
+QBX 2.0 is an experimental adaptive archive engine for Windows and Python. It combines content-defined chunking, global SHA-256 deduplication, multiple block representations and **AGRP — Adaptive Global Representation Planner**.
 
-## Product candidate: 1.0.0-rc1
+The product does not require quantum hardware. Quantum/QUBO work remains a research path for the planning problem.
 
-The current engine supports:
+## What is new in 2.0
 
-    files and folders
-        -> content-defined chunks
-        -> SHA-256 block identity
-        -> global deduplication
-        -> RAW / Zstandard / Deflate / LZMA selection
-        -> .qbx container
-        -> verification
-        -> safe lossless extraction
+QBX 1.x selected the smallest acceptable representation block by block. QBX 2.0 adds a global planning layer:
 
-Quantum hardware is **not** required to create or open a QBX archive.
+```
+files
+  -> content-defined chunks
+  -> SHA-256 deduplication
+  -> RAW / Zstandard / Deflate / LZMA candidates
+  -> measured encode/decode latency
+  -> Pareto pruning
+  -> AGRP global goal-constrained planning
+  -> QBX container
+  -> full SHA-256 verification on extraction
+```
 
-## Windows application
+The `adaptive` profile is now the default in the Windows GUI and CLI.
 
-The Windows build produces:
+## Scientific validation
 
-- **QBX-Setup-1.0.0-rc1.exe** — graphical installer;
-- **QBX-Portable-1.0.0-rc1.zip** — portable GUI + CLI;
-- **SHA256SUMS.txt** — integrity hashes.
+The research prototype was validated on qBraid on 2026-09-23. A small exact optimization problem was mapped to QUBO and exhaustively enumerated:
 
-The graphical application lets a normal Windows user choose files/folders, create a `.qbx`, verify it, inspect its contents, and extract it without using Python or a terminal.
+- 18 QUBO variables;
+- 262,144 states examined;
+- exact objective: `0.25243298047920626`;
+- QUBO objective: `0.25243298047920626`;
+- equivalence: **true**.
 
-The installer is not yet code-signed, so Windows may show an unknown-publisher warning.
+That result validates the tested mapping. It does **not** demonstrate quantum advantage.
 
-See [docs/WINDOWS.md](docs/WINDOWS.md).
+### AGRP trade-off benchmark
 
-## Install from source
+On the validated 12-block synthetic corpus, the local-smallest plan stored 526,921 payload bytes with a measured decode sum of 1,143,671 ns. AGRP stored 537,088 bytes and reduced the measured decode sum to 426,689 ns.
 
-    python -m pip install -e .
+![AGRP stored-byte benchmark](docs/assets/agrp_size.svg)
 
-For development:
+![AGRP decode benchmark](docs/assets/agrp_decode.svg)
 
-    python -m pip install -e ".[dev]"
+Observed on that corpus:
 
-## Command line
+- payload size delta: **+1.93%** versus local-smallest;
+- measured decode-latency reduction: **62.69%**;
+- peak dynamic-planner frontier: **60 states**;
+- planner validation runtime: **5.003 s**.
 
-Create:
+These figures are dataset- and machine-specific observations, not universal performance claims. Raw data is stored in [benchmarks/results/qbraid_agrp_validation_2026-09-23.json](benchmarks/results/qbraid_agrp_validation_2026-09-23.json). See [docs/SCIENCE_V2.md](docs/SCIENCE_V2.md).
 
-    qbx pack MyFolder MyFolder.qbx --profile balanced
+## Windows downloads
 
-Profiles:
+The Windows workflow builds:
 
-- `fast`: RAW + fast Zstandard;
-- `balanced`: RAW + Zstandard + Deflate + LZMA;
-- `smallest`: higher compression settings across all codecs.
+- `QBX-Setup-2.0.0.exe` — graphical installer;
+- `QBX-Portable-2.0.0.zip` — portable GUI + CLI;
+- `SHA256SUMS.txt` — integrity hashes.
 
-Verify:
+The installer associates `.qbx` files with the graphical application. The binaries are currently not code-signed, so Windows SmartScreen may show an unknown-publisher warning.
 
-    qbx verify MyFolder.qbx
+## GUI
 
-Inspect:
+The graphical application supports:
 
-    qbx list MyFolder.qbx
+- selecting a file or folder;
+- `adaptive`, `fast`, `balanced` and `smallest` profiles;
+- creating a QBX archive;
+- inspecting archive contents;
+- full integrity verification;
+- safe extraction.
 
-Extract:
+`adaptive` runs AGRP. The older profiles remain available when predictable compression behavior or lower packing overhead is preferred.
 
-    qbx unpack MyFolder.qbx RestoredFolder
+## CLI
 
-Existing files are not overwritten unless explicitly requested:
+Install from source:
 
-    qbx unpack MyFolder.qbx RestoredFolder --overwrite
+```bash
+python -m pip install -e .
+```
 
-## Benchmark
+Create with AGRP:
 
-Run:
+```bash
+qbx pack MyFolder MyArchive.qbx --profile adaptive
+```
 
-    python benchmarks/product_benchmark.py
+Optional global budgets:
 
-The benchmark compares the QBX profiles with Python ZIP/Deflate on the same reproducibly generated dataset. Results apply to that dataset and machine; they are not universal compression claims.
+```bash
+qbx pack MyFolder MyArchive.qbx --profile adaptive --max-size-mb 500 --max-decode-ms 250
+```
+
+Traditional profiles:
+
+```bash
+qbx pack MyFolder MyArchive.qbx --profile fast
+qbx pack MyFolder MyArchive.qbx --profile balanced
+qbx pack MyFolder MyArchive.qbx --profile smallest
+```
+
+Verify, inspect and extract:
+
+```bash
+qbx verify MyArchive.qbx
+qbx list MyArchive.qbx
+qbx unpack MyArchive.qbx RestoredFolder
+```
+
+Existing destination files are not overwritten unless `--overwrite` is explicitly supplied.
+
+## How AGRP works
+
+For each unique block, QBX 2.0 measures a candidate set containing RAW, multiple Zstandard levels, Deflate levels and LZMA levels. It removes representations that are simultaneously worse in stored size, encode latency and decode latency.
+
+The remaining Pareto candidates are fed to a bounded global dynamic planner. By default, the planner derives a local-smallest baseline, allows a small size budget above that baseline, and searches for a lower-latency global combination. User-supplied size/decode budgets override the defaults.
+
+Planner metadata is embedded in the archive manifest so the decision process can be inspected with `qbx list`.
+
+## Reproducible product benchmark
+
+The Windows product pipeline also ran the real QBX 2.0 pack/verify/unpack path on a deterministic **5,624,000-byte** synthetic corpus containing text, patterns, pseudo-random data and duplicate files.
+
+| Format/profile | Archive bytes | Ratio | Pack | Unpack |
+| --- | ---: | ---: | ---: | ---: |
+| QBX balanced | 1,004,338 | 17.858% | 1.584 s | 0.077 s |
+| QBX smallest | 1,004,336 | 17.858% | 1.758 s | 0.078 s |
+| QBX adaptive AGRP | 1,004,896 | 17.868% | 3.029 s | 0.076 s |
+| ZIP Deflate 9 | 2,011,829 | 35.772% | 0.092 s | 0.016 s |
+
+![QBX 2.0 product archive-size benchmark](docs/assets/product_benchmark_size.svg)
+
+![QBX 2.0 product timing benchmark](docs/assets/product_benchmark_time.svg)
+
+On this corpus, QBX's global deduplication materially reduced archive size relative to ordinary ZIP because duplicate files were intentionally present. ZIP packed and unpacked faster. AGRP spent additional packing time profiling/planning and produced nearly the same archive size as the local-smallest QBX mode while giving the fastest QBX unpack measurement in this run.
+
+These are **corpus- and runner-specific observations**, not universal claims. The verified Windows run is recorded in [benchmarks/results/v2_windows_2026-09-23.json](benchmarks/results/v2_windows_2026-09-23.json).
+
+Run the benchmark yourself:
+
+```bash
+python benchmarks/v2_benchmark.py
+```
+
+It compares QBX balanced, smallest, adaptive AGRP and ZIP/Deflate level 9. Every QBX result is verified, extracted and checked against the deterministic source tree hash before the benchmark succeeds.
+
+## Integrity and safety
+
+QBX uses:
+
+- SHA-256 block identity;
+- SHA-256 reconstructed-file verification;
+- global block deduplication;
+- safe relative-path validation;
+- refusal to overwrite by default;
+- bounded manifest/block limits;
+- atomic archive writes;
+- atomic extracted-file replacement.
+
+QBX 2.0 is still an experimental format implementation. Keep independent copies of important data until it has broader interoperability testing, fuzzing and independent security review.
 
 ## Quantum research
 
-QBX explores representing archive-planning decisions as QUBO problems and solving them with classical and quantum/hybrid optimization methods.
+The planner problem can be represented as QUBO/Ising for QAOA and other solvers. The archive format itself remains fully classical and can always be decoded without a QPU.
 
-The quantum layer is a planner, not a mechanism that directly compresses arbitrary bytes. Simulator success does not establish quantum advantage.
+No claim of quantum advantage is made.
 
-## Safety and maturity
+## Development
 
-QBX 1.0.0-rc1 is a release candidate. Keep independent copies of important data until the format and implementation have undergone broader compatibility, fuzzing, and independent review.
+Run the test suite:
 
-See [docs/PRODUCT.md](docs/PRODUCT.md), [docs/QBX-SPEC-1.0.md](docs/QBX-SPEC-1.0.md), [docs/WINDOWS.md](docs/WINDOWS.md), and [SECURITY.md](SECURITY.md).
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest -q
+```
+
+Windows CI also builds and self-tests the GUI and CLI executables before uploading artifacts.
 
 ## License
 

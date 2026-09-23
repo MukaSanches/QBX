@@ -1,0 +1,28 @@
+{
+  "date": "2026-09-23",
+  "environment": "qBraid Lab",
+  "status": "observed experimental result",
+  "datasets": 12,
+  "raw_bytes": 1927332,
+  "local_smallest_payload_bytes": 526921,
+  "agrp_global_payload_bytes": 537088,
+  "local_decode_ns": 1143671,
+  "agrp_global_decode_ns": 426689,
+  "peak_dp_states": 60,
+  "runtime_seconds": 5.003,
+  "payload_size_delta_pct": 1.9295112550078652,
+  "decode_latency_reduction_pct": 62.69128097153814,
+  "scientific_core": {
+    "tests_passed": 7,
+    "qubo_variables": 18,
+    "qubo_states_examined": 262144,
+    "qubo_exact_score": 0.25243298047920626,
+    "qubo_score": 0.25243298047920626,
+    "qubo_equivalent": true
+  },
+  "limitations": [
+    "Synthetic corpus; not a universal compression result.",
+    "Decode figures are measurements from the validation environment, not guarantees on other machines.",
+    "QUBO equivalence validates the formulation on the enumerated instance; it does not demonstrate quantum advantage."
+  ]
+}

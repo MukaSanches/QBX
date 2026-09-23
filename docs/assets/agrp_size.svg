@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="310" viewBox="0 0 920 310">
+<rect width="920" height="310" fill="#0d1117"/>
+<text x="30" y="38" fill="#f0f6fc" font-family="Segoe UI,Arial" font-size="24" font-weight="700">QBX 2.0 AGRP — stored bytes on validated synthetic corpus</text>
+<text x="30" y="65" fill="#8b949e" font-family="Segoe UI,Arial" font-size="14">qBraid validation • 2026-09-23 • raw input 1,927,332 bytes</text>
+<text x="30" y="112" fill="#c9d1d9" font-family="Segoe UI,Arial" font-size="15">Raw input</text>
+<rect x="190" y="92" width="680" height="28" rx="5" fill="#30363d"/>
+<text x="200" y="112" fill="#ffffff" font-family="Consolas,monospace" font-size="14">1,927,332</text>
+<text x="30" y="174" fill="#c9d1d9" font-family="Segoe UI,Arial" font-size="15">Local smallest</text>
+<rect x="190" y="154" width="186" height="28" rx="5" fill="#58a6ff"/>
+<text x="200" y="174" fill="#ffffff" font-family="Consolas,monospace" font-size="14">526,921</text>
+<text x="30" y="236" fill="#c9d1d9" font-family="Segoe UI,Arial" font-size="15">AGRP global</text>
+<rect x="190" y="216" width="190" height="28" rx="5" fill="#3fb950"/>
+<text x="200" y="236" fill="#ffffff" font-family="Consolas,monospace" font-size="14">537,088</text>
+<text x="30" y="286" fill="#8b949e" font-family="Segoe UI,Arial" font-size="13">AGRP accepted ~1.93% more payload bytes than the local-size baseline to reduce measured decode latency.</text>
+</svg>

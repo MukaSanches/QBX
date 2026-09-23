@@ -1,0 +1,39 @@
+{
+  "date": "2026-09-23",
+  "environment": "GitHub Actions windows-latest",
+  "commit": "3082faccb32078b51aa317d0a1f36f50b465166e",
+  "dataset_bytes": 5624000,
+  "dataset_sha256": "4d00b7c0632f344dba97f79414d5f3c472818ecc8de43b83345f708c2f56a375",
+  "profiles": {
+    "qbx_balanced": {
+      "archive_bytes": 1004338,
+      "ratio": 0.1785807254623044,
+      "pack_seconds": 1.583830799999987,
+      "unpack_seconds": 0.07738560000001371
+    },
+    "qbx_smallest": {
+      "archive_bytes": 1004336,
+      "ratio": 0.17858036984352774,
+      "pack_seconds": 1.7581753999999705,
+      "unpack_seconds": 0.07844030000001112
+    },
+    "qbx_adaptive_agrp": {
+      "archive_bytes": 1004896,
+      "ratio": 0.17867994310099572,
+      "pack_seconds": 3.028546399999982,
+      "unpack_seconds": 0.07592089999997143,
+      "estimated_decode_improvement_pct": 10.470809792843694
+    },
+    "zip_deflate_9": {
+      "archive_bytes": 2011829,
+      "ratio": 0.3577220839260313,
+      "pack_seconds": 0.09160140000000183,
+      "unpack_seconds": 0.01639919999996664
+    }
+  },
+  "notes": [
+    "Dataset contains duplicate files by design, which benefits QBX global deduplication.",
+    "All QBX variants were verified, extracted, and compared by deterministic tree SHA-256 before success.",
+    "Results are specific to this synthetic corpus and runner."
+  ]
+}

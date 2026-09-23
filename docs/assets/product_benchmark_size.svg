@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="360" viewBox="0 0 980 360">
+<rect width="980" height="360" fill="#0d1117"/>
+<text x="32" y="42" fill="#f0f6fc" font-family="Segoe UI,Arial" font-size="24" font-weight="700">QBX 2.0 product benchmark — archive size</text>
+<text x="32" y="70" fill="#8b949e" font-family="Segoe UI,Arial" font-size="14">GitHub Actions Windows • 5,624,000-byte synthetic duplicate-heavy corpus • lower is better</text>
+
+<text x="32" y="124" fill="#c9d1d9" font-family="Segoe UI,Arial" font-size="15">QBX balanced</text>
+<rect x="210" y="104" width="360" height="28" rx="5" fill="#58a6ff"/>
+<text x="220" y="124" fill="#fff" font-family="Consolas,monospace" font-size="14">1,004,338 bytes (17.858%)</text>
+
+<text x="32" y="184" fill="#c9d1d9" font-family="Segoe UI,Arial" font-size="15">QBX smallest</text>
+<rect x="210" y="164" width="360" height="28" rx="5" fill="#a371f7"/>
+<text x="220" y="184" fill="#fff" font-family="Consolas,monospace" font-size="14">1,004,336 bytes (17.858%)</text>
+
+<text x="32" y="244" fill="#c9d1d9" font-family="Segoe UI,Arial" font-size="15">QBX adaptive AGRP</text>
+<rect x="210" y="224" width="361" height="28" rx="5" fill="#3fb950"/>
+<text x="220" y="244" fill="#fff" font-family="Consolas,monospace" font-size="14">1,004,896 bytes (17.868%)</text>
+
+<text x="32" y="304" fill="#c9d1d9" font-family="Segoe UI,Arial" font-size="15">ZIP Deflate 9</text>
+<rect x="210" y="284" width="720" height="28" rx="5" fill="#d29922"/>
+<text x="220" y="304" fill="#fff" font-family="Consolas,monospace" font-size="14">2,011,829 bytes (35.772%)</text>
+
+<text x="32" y="344" fill="#8b949e" font-family="Segoe UI,Arial" font-size="13">This corpus contains duplicate files by design; QBX global deduplication materially affects this comparison.</text>
+</svg>

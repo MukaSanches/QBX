@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qbx-archive"
-version = "1.0.0rc1"
-description = "Adaptive content-defined archive format with deduplication and optional quantum planning research"
+version = "2.0.0"
+description = "QBX 2.0 adaptive archive engine with AGRP global representation planning"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
